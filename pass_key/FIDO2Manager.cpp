@@ -1,1300 +1,718 @@
 /**
  * @file FIDO2Manager.cpp
- * @brief FIDO2/CTAP2 over BLE 安全密钥管理器实现
+ * @brief FIDO2/CTAP2 over BLE - mbedTLS 3.x compatible implementation
  */
 
 #include "FIDO2Manager.h"
 #include <Arduino.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/pk.h>
-#include <mbedtls/ecdsa.h>
 #include <mbedtls/error.h>
+#include <mbedtls/oid.h>
 #include <Preferences.h>
 #include <cstring>
 
-// 调试输出宏
 #define FIDO_LOG(fmt, ...) Serial.printf("[FIDO2] " fmt "\n", ##__VA_ARGS__)
-
-// Preferences 命名空间
 static const char *FIDO_NS = "fido";
 static const char *KEY_COUNTER = "counter";
 static const char *KEY_CRED_COUNT = "cred_cnt";
 
-// ---- 构造/析构 ----
+// -------------------------------------------------------------------
+// mbedTLS 3.x helpers (avoids direct ecp_keypair struct access)
+// -------------------------------------------------------------------
 
-FIDO2Manager::FIDO2Manager() {}
-
-FIDO2Manager::~FIDO2Manager() {
-    stop();
+/** Reconstruct a pk_context from stored DER key */
+static bool pkFromDER(mbedtls_pk_context *pk, const uint8_t *der, size_t len) {
+    mbedtls_pk_init(pk);
+    return mbedtls_pk_parse_key(pk, der, len, NULL, 0, NULL, NULL) == 0;
 }
 
-// ---- 初始化 ----
+/** Export pk_context private key to DER (caller owns buf, returns length) */
+static int pkToDER(mbedtls_pk_context *pk, uint8_t *buf, size_t bufSize) {
+    return mbedtls_pk_write_key_der(pk, buf, bufSize);
+}
+
+/** Extract raw X,Y (32 bytes each) from pk_context public key */
+static bool getPubKeyXY(mbedtls_pk_context *pk, uint8_t *x, uint8_t *y) {
+    uint8_t der[512];
+    int len = mbedtls_pk_write_pubkey_der(pk, der, sizeof(der));
+    if (len <= 0) return false;
+
+    // DER SubjectPublicKeyInfo: SEQUENCE { SEQUENCE { OID }, BIT STRING point }
+    uint8_t *p = der + sizeof(der) - len;
+    int rem = len;
+
+    // Search for BIT STRING tag (0x03) near the end
+    for (int i = 0; i < rem - 66; i++) {
+        if (p[i] == 0x03) {
+            int off = i + 2;                // skip tag + first length byte
+            int blen = p[i + 1];
+            if (blen & 0x80) off += blen & 0x7F;   // long-form length
+            while (off < rem && p[off] == 0x00) off++; // unused bits byte(s)
+            if (off + 65 <= rem && p[off] == 0x04) { // uncompressed point
+                memcpy(x, p + off + 1, 32);
+                memcpy(y, p + off + 33, 32);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/** Parse DER ECDSA signature to raw R||S (64 bytes) */
+static bool derSigToRS(const uint8_t *der, size_t derLen, uint8_t *rs, size_t rsLen) {
+    if (!der || derLen < 8 || rsLen < 64) return false;
+    // DER: SEQUENCE { INTEGER r, INTEGER s }
+    size_t off = 0;
+    if (der[off++] != 0x30) return false;
+    if (der[off] & 0x80) off += (der[off] & 0x7F) + 1; else off++; // length
+
+    auto readInt = [&](uint8_t *out, size_t outLen) -> bool {
+        if (off >= derLen || der[off] != 0x02) return false;
+        off++; // INTEGER tag
+        size_t ilen = der[off++];
+        if (ilen + off > derLen) return false;
+        if (ilen > outLen) off += ilen - outLen;  // leading zeros
+        else {
+            size_t pad = outLen - ilen;
+            memset(out, 0, pad);
+            memcpy(out + pad, der + off, ilen);
+        }
+        off += ilen;
+        return true;
+    };
+    return readInt(rs, 32) && readInt(rs + 32, 32);
+}
+
+// ===================================================================
+
+FIDO2Manager::FIDO2Manager() {}
+FIDO2Manager::~FIDO2Manager() { stop(); }
+
+// ---- INIT ----
 
 bool FIDO2Manager::init(CryptoEngine *crypto) {
     _crypto = crypto;
-
     Preferences prefs;
     prefs.begin(FIDO_NS, true);
     _signCounter = prefs.getUInt(KEY_COUNTER, 0);
     _credentialCount = prefs.getUInt(KEY_CRED_COUNT, 0);
     prefs.end();
-
     _initialized = true;
-    FIDO_LOG("FIDO2 管理器初始化完成, 凭证数: %d, 签名计数: %u", _credentialCount, _signCounter);
+    FIDO_LOG("init OK  credentials=%d  signCounter=%u", _credentialCount, _signCounter);
     return true;
 }
 
-// ---- 配置 ----
-
 void FIDO2Manager::setConfig(const FIDO2Config &cfg) {
     _cfg = cfg;
-    if (_cfg.enabled && _initialized && !_server) {
-        start();
-    } else if (!_cfg.enabled && _server) {
-        stop();
-    }
+    if (_cfg.enabled && _initialized && !_server) start();
+    else if (!_cfg.enabled && _server) stop();
 }
 
-// ---- 启动/停止 BLE ----
+// ---- BLE START / STOP ----
 
 void FIDO2Manager::start() {
-    if (!_initialized || !_cfg.enabled) return;
-    if (_server) return;
+    if (!_initialized || !_cfg.enabled || _server) return;
+    FIDO_LOG("Starting BLE FIDO2...");
 
-    FIDO_LOG("启动 BLE FIDO2...");
-
-    // 初始化 BLE 设备
     BLEDevice::init(_cfg.deviceName);
-    BLEDevice::setEncryptionLevel(ESP_BLE_SEC_ENCRYPT_MITM);
-
-    // 创建服务器
     _server = BLEDevice::createServer();
     _server->setCallbacks(new FIDOServerCallbacks(this));
 
-    // 创建 FIDO2 服务
     _service = _server->createService(FIDO2_SERVICE_UUID);
 
-    // Control Point (FFF1) - Write/Indicate
     _controlPoint = _service->createCharacteristic(
         FIDO2_CONTROL_POINT_UUID,
-        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_INDICATE
-    );
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_INDICATE);
     _controlPoint->setCallbacks(new FIDOCharacteristicCallbacks(this));
     _controlPoint->addDescriptor(new BLE2902());
 
-    // Status (FFF2) - Notify
     _status = _service->createCharacteristic(
         FIDO2_STATUS_UUID,
-        BLECharacteristic::PROPERTY_NOTIFY
-    );
+        BLECharacteristic::PROPERTY_NOTIFY);
     _status->addDescriptor(new BLE2902());
 
-    // Control Point Length (FFF3) - Read
     _controlPointLen = _service->createCharacteristic(
         FIDO2_CONTROL_POINT_LEN,
-        BLECharacteristic::PROPERTY_READ
-    );
-    uint16_t maxLen = 1024;
-    _controlPointLen->setValue((uint8_t *)&maxLen, 2);
+        BLECharacteristic::PROPERTY_READ);
+    { uint16_t v = 1024; _controlPointLen->setValue((uint8_t *)&v, 2); }
 
-    // Service Revision Bitmap (FFF4) - Read
     _serviceRevision = _service->createCharacteristic(
         FIDO2_SERVICE_REVISION,
-        BLECharacteristic::PROPERTY_READ
-    );
-    uint8_t revisionBitmap[] = {0x80, 0x00, 0x00, 0x00}; // BLE service revision 1.0
-    _serviceRevision->setValue(revisionBitmap, 4);
+        BLECharacteristic::PROPERTY_READ);
+    { uint8_t rev[] = {0x80,0,0,0}; _serviceRevision->setValue(rev,4); }
 
-    // 启动服务
     _service->start();
 
-    // 广播设置
-    BLEAdvertising *pAdv = BLEDevice::getAdvertising();
-    pAdv->setAppearance(0x0540); // FIDO2 HID appearance
-    pAdv->addServiceUUID(FIDO2_SERVICE_UUID);
-    pAdv->setScanResponse(true);
-    pAdv->setMinPreferred(0x06);
-    pAdv->setMinPreferred(0x12);
-
+    BLEAdvertising *a = BLEDevice::getAdvertising();
+    a->setAppearance(0x0540);
+    a->addServiceUUID(FIDO2_SERVICE_UUID);
+    a->setScanResponse(true);
     BLEDevice::startAdvertising();
 
-    FIDO_LOG("BLE FIDO2 广播已启动: %s", _cfg.deviceName);
+    FIDO_LOG("BLE FIDO2 advertising as '%s'", _cfg.deviceName);
 }
 
 void FIDO2Manager::stop() {
     if (_server) {
         BLEDevice::stopAdvertising();
         _server->removeService(_service);
-        _server = nullptr;
-        _service = nullptr;
-        _controlPoint = nullptr;
-        _status = nullptr;
-        _connected = false;
-        FIDO_LOG("BLE FIDO2 已停止");
+        _server = nullptr; _service = nullptr;
+        _controlPoint = nullptr; _status = nullptr; _connected = false;
+        FIDO_LOG("BLE stopped");
     }
 }
 
 void FIDO2Manager::setEnabled(bool en) {
     _cfg.enabled = en;
-    if (en && _initialized) {
-        start();
-    } else {
-        stop();
-    }
+    en ? start() : stop();
 }
 
-// ---- 电源管理 ----
-
-void FIDO2Manager::prepareSleep() {
-    stop();
-}
-
-void FIDO2Manager::wakeFromSleep() {
-    start();
-}
-
-// ---- 主循环 ----
+void FIDO2Manager::prepareSleep() { stop(); }
+void FIDO2Manager::wakeFromSleep() { start(); }
 
 void FIDO2Manager::update() {
-    if (_connected && _userActionPending) {
-        if (millis() >= _userActionTimeout) {
-            FIDO_LOG("用户操作超时");
-            _userActionPending = false;
-            sendError(_pendingCmdCode, CTAP2_ERR_USER_ACTION_PENDING);
-        }
+    if (_connected && _userActionPending && millis() >= _userActionTimeout) {
+        _userActionPending = false;
+        sendError(_pendingCmdCode, CTAP2_ERR_USER_ACTION_PENDING);
+        FIDO_LOG("user action timeout");
     }
 }
 
-// ---- 用户存在处理 ----
+// ---- USER PRESENCE ----
 
 void FIDO2Manager::confirmUserPresence(bool approved) {
     if (!_userActionPending) return;
     _userActionApproved = approved;
     _userActionPending = false;
-
     if (!approved) {
         sendError(_pendingCmdCode, CTAP2_ERR_OPERATION_DENIED);
-        FIDO_LOG("用户拒绝了操作");
         return;
     }
-
-    FIDO_LOG("用户确认操作");
-
-    // 处理待处理命令
     switch (_pendingCmdCode) {
-        case CTAP_MAKE_CREDENTIAL:
-            handleMakeCredential(_pendingCmdBuffer, _pendingCmdLen);
-            break;
-        case CTAP_GET_ASSERTION:
-            handleGetAssertion(_pendingCmdBuffer, _pendingCmdLen);
-            break;
-        case CTAP_RESET:
-            handleReset();
-            break;
-        default:
-            break;
+        case CTAP_MAKE_CREDENTIAL: handleMakeCredential(_pendingCmdBuffer, _pendingCmdLen); break;
+        case CTAP_GET_ASSERTION:   handleGetAssertion(_pendingCmdBuffer, _pendingCmdLen); break;
+        case CTAP_RESET:           handleReset(); break;
+        default: break;
     }
 }
 
-// ---- BLE 回调 ----
+// ---- BLE CALLBACKS ----
 
-void FIDO2Manager::FIDOServerCallbacks::onConnect(BLEServer *pServer) {
+void FIDO2Manager::FIDOServerCallbacks::onConnect(BLEServer*) {
     parent->_connected = true;
     BLEDevice::stopAdvertising();
-    FIDO_LOG("BLE 已连接");
+    FIDO_LOG("BLE connected");
 }
-
-void FIDO2Manager::FIDOServerCallbacks::onDisconnect(BLEServer *pServer) {
+void FIDO2Manager::FIDOServerCallbacks::onDisconnect(BLEServer*) {
     parent->_connected = false;
     parent->_userActionPending = false;
     BLEDevice::startAdvertising();
-    FIDO_LOG("BLE 已断开, 恢复广播");
+    FIDO_LOG("BLE disconnected, advertising");
 }
 
 void FIDO2Manager::FIDOCharacteristicCallbacks::onWrite(BLECharacteristic *pChar) {
     if (!parent) return;
-    std::string value = pChar->getValue();
-    if (value.empty()) return;
-    parent->handleCTAP2Command((const uint8_t *)value.data(), value.length());
+    String val = pChar->getValue();
+    if (val.length() == 0) return;
+    parent->handleCTAP2Command((const uint8_t *)val.c_str(), val.length());
 }
 
-// ---- CTAP2 命令分发 ----
+// ---- CTAP2 DISPATCH ----
 
 void FIDO2Manager::handleCTAP2Command(const uint8_t *data, size_t len) {
     if (len < 1) return;
-
     uint8_t cmd = data[0];
-    FIDO_LOG("收到 CTAP2 命令: 0x%02X, 长度: %d", cmd, len - 1);
-
     switch (cmd) {
-        case CTAP_GET_INFO:
-            handleGetInfo();
-            break;
+        case CTAP_GET_INFO:      handleGetInfo(); break;
         case CTAP_MAKE_CREDENTIAL:
-            if (len > 1) {
-                // 需要用户确认
-                _pendingCmdCode = CTAP_MAKE_CREDENTIAL;
-                _pendingCmdLen = len - 1;
-                memcpy(_pendingCmdBuffer, data + 1, len - 1);
-                _userActionPending = true;
-                _userActionApproved = false;
-                _userActionTimeout = millis() + 30000; // 30秒超时
-                sendKeepAlive(0x01); // User Presence required
-                if (_userPresenceCb) _userPresenceCb();
-            }
-            break;
         case CTAP_GET_ASSERTION:
-            if (len > 1) {
-                // 需要用户确认
-                _pendingCmdCode = CTAP_GET_ASSERTION;
-                _pendingCmdLen = len - 1;
-                memcpy(_pendingCmdBuffer, data + 1, len - 1);
-                _userActionPending = true;
-                _userActionApproved = false;
-                _userActionTimeout = millis() + 30000;
-                sendKeepAlive(0x01);
-                if (_userPresenceCb) _userPresenceCb();
-            }
-            break;
-        case CTAP_CLIENT_PIN:
-            if (len > 1) {
-                handleClientPIN(data + 1, len - 1);
-            }
-            break;
         case CTAP_RESET:
-            _pendingCmdCode = CTAP_RESET;
+            _pendingCmdCode = cmd;
+            _pendingCmdLen = len > 1 ? len - 1 : 0;
+            if (_pendingCmdLen) memcpy(_pendingCmdBuffer, data + 1, _pendingCmdLen);
             _userActionPending = true;
             _userActionApproved = false;
             _userActionTimeout = millis() + 30000;
             sendKeepAlive(0x01);
             if (_userPresenceCb) _userPresenceCb();
             break;
-        case CTAP_CANCEL:
-            _userActionPending = false;
-            FIDO_LOG("操作已取消");
-            break;
-        default:
-            FIDO_LOG("未知命令: 0x%02X", cmd);
-            sendError(cmd, CTAP1_ERR_INVALID_COMMAND);
-            break;
+        case CTAP_CLIENT_PIN:    if (len>1) handleClientPIN(data+1,len-1); break;
+        case CTAP_CANCEL:        _userActionPending = false; FIDO_LOG("cancel"); break;
+        default:                 sendError(cmd, CTAP1_ERR_INVALID_COMMAND); break;
     }
 }
 
-// ---- CTAP2 命令处理 ----
+// ---- authenticatorGetInfo ----
 
-// authenticatorGetInfo
 void FIDO2Manager::handleGetInfo() {
-    FIDO_LOG("处理 GetInfo");
+    uint8_t buf[512]; size_t off = 0;
+    off += encodeCBORMap(buf+off,sizeof(buf)-off, 10);
 
-    uint8_t buf[512];
-    size_t offset = 0;
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,1); // versions
+    const char *vers[] = {"FIDO_2_0","FIDO_2_1_PRE","FIDO_2_1"};
+    off += encodeCBORArray(buf+off,sizeof(buf)-off,3);
+    for (auto v:vers) off += encodeCBORTextString(buf+off,sizeof(buf)-off,v);
 
-    // 构建 CBOR map (共 10 个字段)
-    offset += encodeCBORMap(buf + offset, sizeof(buf) - offset, 10);
-
-    // 1: versions (array of text strings)
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 1);
-    const char *versions[] = {"FIDO_2_0", "FIDO_2_1_PRE", "FIDO_2_1"};
-    offset += encodeCBORArray(buf + offset, sizeof(buf) - offset, 3);
-    for (auto &v : versions) {
-        offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, v);
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,2); off += encodeCBORArray(buf+off,sizeof(buf)-off,0); //extensions
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,3); off += encodeCBORByteString(buf+off,sizeof(buf)-off,_aaguid,16);
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,4); // options
+    {   const char *k[] = {"rk","up","uv","clientPin","credentialMgmtPreview","ep"};
+        bool v[] = {true,true,false,false,true,false};
+        off += encodeCBORMap(buf+off,sizeof(buf)-off,6);
+        for (int i=0;i<6;i++) {
+            off += encodeCBORTextString(buf+off,sizeof(buf)-off,k[i]);
+            off += encodeCBORBool(buf+off,sizeof(buf)-off,v[i]);
+        }
     }
-
-    // 2: extensions (array, empty for now)
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 2);
-    offset += encodeCBORArray(buf + offset, sizeof(buf) - offset, 0);
-
-    // 3: AAGUID (byte string)
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 3);
-    offset += encodeCBORByteString(buf + offset, sizeof(buf) - offset, _aaguid, 16);
-
-    // 4: options (map)
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 4);
-    offset += encodeCBORMap(buf + offset, sizeof(buf) - offset, 6);
-    //   rk (resident key): true
-    offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, "rk");
-    offset += encodeCBORBool(buf + offset, sizeof(buf) - offset, true);
-    //   up (user presence): true
-    offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, "up");
-    offset += encodeCBORBool(buf + offset, sizeof(buf) - offset, true);
-    //   uv (user verification): false
-    offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, "uv");
-    offset += encodeCBORBool(buf + offset, sizeof(buf) - offset, false);
-    //   clientPin: false
-    offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, "clientPin");
-    offset += encodeCBORBool(buf + offset, sizeof(buf) - offset, false);
-    //   credentialMgmtPreview: true
-    offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, "credentialMgmtPreview");
-    offset += encodeCBORBool(buf + offset, sizeof(buf) - offset, true);
-    //   ep (enterprise attestation): false
-    offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, "ep");
-    offset += encodeCBORBool(buf + offset, sizeof(buf) - offset, false);
-
-    // 5: maxMsgSize (unsigned int)
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 5);
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 1024);
-
-    // 6: all pinUvAuthProtocols (array)
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 6);
-    offset += encodeCBORArray(buf + offset, sizeof(buf) - offset, 0);
-
-    // 7: maxCredentialCountInList (unsigned int)
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 7);
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, _credentialMax);
-
-    // 8: maxCredentialIdLength (unsigned int)
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 8);
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 64);
-
-    // 9: transports (array)
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 9);
-    const char *transports[] = {"ble", "internal"};
-    offset += encodeCBORArray(buf + offset, sizeof(buf) - offset, 2);
-    for (auto &t : transports) {
-        offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, t);
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,5); off += encodeCBORInt(buf+off,sizeof(buf)-off,1024);
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,6); off += encodeCBORArray(buf+off,sizeof(buf)-off,0);
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,7); off += encodeCBORInt(buf+off,sizeof(buf)-off,_credentialMax);
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,8); off += encodeCBORInt(buf+off,sizeof(buf)-off,64);
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,9); // transports
+    {   const char *t[] = {"ble","internal"};
+        off += encodeCBORArray(buf+off,sizeof(buf)-off,2);
+        off += encodeCBORTextString(buf+off,sizeof(buf)-off,t[0]);
+        off += encodeCBORTextString(buf+off,sizeof(buf)-off,t[1]);
     }
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,10); // algorithms
+    off += encodeCBORArray(buf+off,sizeof(buf)-off,1);
+    off += encodeCBORMap(buf+off,sizeof(buf)-off,2);
+    off += encodeCBORTextString(buf+off,sizeof(buf)-off,"type");
+    off += encodeCBORTextString(buf+off,sizeof(buf)-off,"public-key");
+    off += encodeCBORTextString(buf+off,sizeof(buf)-off,"alg");
+    off += encodeCBORInt(buf+off,sizeof(buf)-off,-7);
 
-    // 10: algorithms (array)
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, 10);
-    offset += encodeCBORArray(buf + offset, sizeof(buf) - offset, 1);
-    offset += encodeCBORMap(buf + offset, sizeof(buf) - offset, 2);
-    offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, "type");
-    offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, "public-key");
-    offset += encodeCBORTextString(buf + offset, sizeof(buf) - offset, "alg");
-    offset += encodeCBORInt(buf + offset, sizeof(buf) - offset, -7); // ES256 (ECDSA w/ SHA256)
-
-    sendResponse(CTAP_GET_INFO, buf, offset);
+    sendResponse(CTAP_GET_INFO,buf,off);
 }
 
-// authenticatorMakeCredential
-void FIDO2Manager::handleMakeCredential(const uint8_t *cborData, size_t cborLen) {
-    FIDO_LOG("处理 MakeCredential");
+// ---- authenticatorMakeCredential ----
 
-    if (!_crypto) {
-        sendError(CTAP_MAKE_CREDENTIAL, CTAP1_ERR_OTHER);
-        return;
-    }
-
-    // 解析 CBOR 参数
-    size_t offset = 0;
-    uint8_t majorType;
-    uint64_t mapCount;
-    if (!decodeCBORHeader(cborData, cborLen, offset, majorType, mapCount) || majorType != 0xA0) {
-        sendError(CTAP_MAKE_CREDENTIAL, CTAP1_ERR_INVALID_PARAMETER);
-        return;
-    }
-
-    // 提取 RP ID 和 User
-    char rpID[128] = {0};
-    char rpName[128] = {0};
-    char userName[128] = {0};
-    char userDisplayName[128] = {0};
-    uint8_t userID[32] = {0};
-    size_t userIDLen = 0;
-
-    for (uint64_t i = 0; i < mapCount && offset < cborLen; i++) {
-        int64_t key;
-        if (!decodeCBORInt(cborData, cborLen, offset, key)) break;
-
-        switch (key) {
-            case 1: { // rp
-                size_t rpOffset = offset;
-                uint8_t rpMT;
-                uint64_t rpMapLen;
-                if (decodeCBORHeader(cborData, cborLen, offset, rpMT, rpMapLen) && rpMT == 0xA0) {
-                    for (uint64_t j = 0; j < rpMapLen; j++) {
-                        int64_t rpKey;
-                        if (!decodeCBORInt(cborData, cborLen, offset, rpKey)) break;
-                        if (rpKey == 1) { // rp.id
-                            decodeCBORTextString(cborData, cborLen, offset, rpID, sizeof(rpID));
-                        } else if (rpKey == 2) { // rp.name
-                            decodeCBORTextString(cborData, cborLen, offset, rpName, sizeof(rpName));
-                        } else {
-                            skipCBORValue(cborData, cborLen, offset);
-                        }
+void FIDO2Manager::handleMakeCredential(const uint8_t *cbor, size_t cborLen) {
+    // Parse minimal CBOR map
+    char rpID[128]={}, rpName[128]={}, userName[128]={}, userDisp[128]={};
+    uint8_t userID[32]={}; size_t userIDLen=0;
+    {   size_t off=0; uint8_t mt; uint64_t mapN;
+        if (!decodeCBORHeader(cbor,cborLen,off,mt,mapN)||mt!=0xA0)
+            { sendError(CTAP_MAKE_CREDENTIAL,CTAP1_ERR_INVALID_PARAMETER); return; }
+        for (uint64_t i=0;i<mapN&&off<cborLen;i++) {
+            int64_t k; if (!decodeCBORInt(cbor,cborLen,off,k)) break;
+            if (k==1) { // rp
+                size_t s=off; uint8_t mt2; uint64_t m2;
+                if (decodeCBORHeader(cbor,cborLen,off,mt2,m2)&&mt2==0xA0) {
+                    for (uint64_t j=0;j<m2;j++) {
+                        int64_t rk; if(!decodeCBORInt(cbor,cborLen,off,rk)) break;
+                        if(rk==1) decodeCBORTextString(cbor,cborLen,off,rpID,sizeof(rpID));
+                        else if(rk==2) decodeCBORTextString(cbor,cborLen,off,rpName,sizeof(rpName));
+                        else skipCBORValue(cbor,cborLen,off);
                     }
-                } else {
-                    offset = rpOffset;
-                    skipCBORValue(cborData, cborLen, offset);
-                }
-                break;
-            }
-            case 2: { // user
-                size_t userOffset = offset;
-                uint8_t userMT;
-                uint64_t userMapLen;
-                if (decodeCBORHeader(cborData, cborLen, offset, userMT, userMapLen) && userMT == 0xA0) {
-                    for (uint64_t j = 0; j < userMapLen; j++) {
-                        int64_t userKey;
-                        if (!decodeCBORInt(cborData, cborLen, offset, userKey)) break;
-                        if (userKey == 1) { // user.id
-                            const uint8_t *idData;
-                            size_t idLen;
-                            decodeCBORByteString(cborData, cborLen, offset, idData, idLen);
-                            userIDLen = min(idLen, sizeof(userID));
-                            memcpy(userID, idData, userIDLen);
-                        } else if (userKey == 2) { // user.name
-                            decodeCBORTextString(cborData, cborLen, offset, userName, sizeof(userName));
-                        } else if (userKey == 3) { // user.displayName
-                            decodeCBORTextString(cborData, cborLen, offset, userDisplayName, sizeof(userDisplayName));
-                        } else {
-                            skipCBORValue(cborData, cborLen, offset);
-                        }
+                } else { off=s; skipCBORValue(cbor,cborLen,off); }
+            } else if (k==2) { // user
+                size_t s=off; uint8_t mt2; uint64_t m2;
+                if (decodeCBORHeader(cbor,cborLen,off,mt2,m2)&&mt2==0xA0) {
+                    for (uint64_t j=0;j<m2;j++) {
+                        int64_t uk; if(!decodeCBORInt(cbor,cborLen,off,uk)) break;
+                        if (uk==1) { const uint8_t *d; size_t dl;
+                            decodeCBORByteString(cbor,cborLen,off,d,dl);
+                            userIDLen=min(dl,sizeof(userID)); memcpy(userID,d,userIDLen);
+                        } else if (uk==2) decodeCBORTextString(cbor,cborLen,off,userName,sizeof(userName));
+                        else if (uk==3) decodeCBORTextString(cbor,cborLen,off,userDisp,sizeof(userDisp));
+                        else skipCBORValue(cbor,cborLen,off);
                     }
-                } else {
-                    offset = userOffset;
-                    skipCBORValue(cborData, cborLen, offset);
-                }
-                break;
-            }
-            default:
-                skipCBORValue(cborData, cborLen, offset);
-                break;
+                } else { off=s; skipCBORValue(cbor,cborLen,off); }
+            } else skipCBORValue(cbor,cborLen,off);
         }
     }
 
-    FIDO_LOG("  RP ID: %s, User: %s", rpID, userName);
-
-    // 生成 ECDSA P-256 密钥对
-    mbedtls_pk_context pkCtx;
-    mbedtls_pk_init(&pkCtx);
-    int ret = mbedtls_pk_setup(&pkCtx, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
-    if (ret != 0) {
-        mbedtls_pk_free(&pkCtx);
-        sendError(CTAP_MAKE_CREDENTIAL, CTAP1_ERR_OTHER);
+    // Generate ECDSA P-256 key pair
+    mbedtls_pk_context pk; mbedtls_pk_init(&pk);
+    if (mbedtls_pk_setup(&pk, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY)) ||
+        mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(pk),
+                            mbedtls_ctr_drbg_random, &_crypto->getCTRDRBG())) {
+        mbedtls_pk_free(&pk);
+        sendError(CTAP_MAKE_CREDENTIAL,CTAP1_ERR_OTHER);
         return;
     }
 
-    ret = mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1,
-                               mbedtls_pk_ec(pkCtx),
-                               mbedtls_ctr_drbg_random, &_crypto->getCTRDRBG());
-    if (ret != 0) {
-        mbedtls_pk_free(&pkCtx);
-        sendError(CTAP_MAKE_CREDENTIAL, CTAP1_ERR_OTHER);
+    // Export private key DER
+    uint8_t pkDer[256]; int pkDerLen = pkToDER(&pk, pkDer, sizeof(pkDer));
+    if (pkDerLen <= 0) { mbedtls_pk_free(&pk); sendError(CTAP_MAKE_CREDENTIAL,CTAP1_ERR_OTHER); return; }
+
+    // Extract public key X,Y
+    uint8_t pubX[32], pubY[32];
+    if (!getPubKeyXY(&pk, pubX, pubY)) {
+        mbedtls_pk_free(&pk);
+        sendError(CTAP_MAKE_CREDENTIAL,CTAP1_ERR_OTHER);
         return;
     }
 
-    // 提取私钥和公钥
-    mbedtls_ecdsa_context ecdsa;
-    mbedtls_ecdsa_init(&ecdsa);
-    mbedtls_ecdsa_from_keypair(&ecdsa, mbedtls_pk_ec(pkCtx));
-
-    uint8_t privateKey[32] = {0};
-    uint8_t publicKeyX[32] = {0};
-    uint8_t publicKeyY[32] = {0};
-
-    mbedtls_mpi_write_binary(&ecdsa.d, privateKey, 32);
-    mbedtls_mpi_write_binary(&ecdsa.Q.X, publicKeyX, 32);
-    mbedtls_mpi_write_binary(&ecdsa.Q.Y, publicKeyY, 32);
-
-    // 计算凭证 ID (SHA256 of public key)
-    uint8_t credID[32];
-    uint8_t pubKeyRaw[64];
-    memcpy(pubKeyRaw, publicKeyX, 32);
-    memcpy(pubKeyRaw + 32, publicKeyY, 32);
-
-    mbedtls_sha256(pubKeyRaw, 64, credID, 0);
-
-    // 计算 RP ID hash
-    uint8_t rpIDHash[32];
-    mbedtls_sha256((const uint8_t *)rpID, strlen(rpID), rpIDHash, 0);
-
-    // 存储凭证
-    FIDO2Credential cred;
-    memset(&cred, 0, sizeof(cred));
-    memcpy(cred.credentialID, credID, 32);
-    memcpy(cred.privateKey, privateKey, 32);
-    memcpy(cred.publicKey, publicKeyX, 32);  // X only
-    memcpy(cred.publicKey + 32, publicKeyY, 32);  // Y
-    memcpy(cred.rpIDHash, rpIDHash, 32);
-    strncpy(cred.rpID, rpID, sizeof(cred.rpID) - 1);
-    strncpy(cred.userName, userName, sizeof(cred.userName) - 1);
-    memcpy(cred.userID, userID, min(userIDLen, (size_t)32));
-    cred.userIDLen = userIDLen;
-    cred.isValid = true;
-
-    if (!storeCredential(cred)) {
-        mbedtls_ecdsa_free(&ecdsa);
-        mbedtls_pk_free(&pkCtx);
-        sendError(CTAP_MAKE_CREDENTIAL, CTAP1_ERR_OTHER);
-        return;
-    }
-
-    // 构建响应 CBOR
-    uint8_t resp[512];
-    size_t respOff = 0;
-    respOff += encodeCBORMap(resp + respOff, sizeof(resp) - respOff, 3);
-
-    // 1: fmt = "packed"
-    respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, 1);
-    respOff += encodeCBORTextString(resp + respOff, sizeof(resp) - respOff, "packed");
-
-    // 2: authData
-    uint8_t authData[256];
-    size_t authDataLen = buildAuthDataMakeCred(rpIDHash, credID, 32,
-                                                publicKeyX, publicKeyY,
-                                                authData, sizeof(authData));
-    respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, 2);
-    respOff += encodeCBORByteString(resp + respOff, sizeof(resp) - respOff, authData, authDataLen);
-
-    // 3: attStmt
-    respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, 3);
-    respOff += encodeCBORMap(resp + respOff, sizeof(resp) - respOff, 2);
-    //   alg: -7 (ES256)
-    respOff += encodeCBORTextString(resp + respOff, sizeof(resp) - respOff, "alg");
-    respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, -7);
-    //   sig: ECDSA signature of authData
-    uint8_t sig[64] = {0};
-    size_t sigLen = 0;
-    mbedtls_mpi r, s;
-    mbedtls_mpi_init(&r);
-    mbedtls_mpi_init(&s);
-    ret = mbedtls_ecdsa_sign(&ecdsa.grp, &r, &s,
-                              &ecdsa.d,
-                              authData, authDataLen,
-                              mbedtls_ctr_drbg_random, &_crypto->getCTRDRBG());
-    if (ret == 0) {
-        mbedtls_mpi_write_binary(&r, sig, 32);
-        mbedtls_mpi_write_binary(&s, sig + 32, 32);
-        sigLen = 64;
-    }
-    mbedtls_mpi_free(&r);
-    mbedtls_mpi_free(&s);
-    respOff += encodeCBORTextString(resp + respOff, sizeof(resp) - respOff, "sig");
-    respOff += encodeCBORByteString(resp + respOff, sizeof(resp) - respOff, sig, sigLen);
-
-    mbedtls_ecdsa_free(&ecdsa);
-    mbedtls_pk_free(&pkCtx);
-
-    sendResponse(CTAP_MAKE_CREDENTIAL, resp, respOff);
-}
-
-// authenticatorGetAssertion
-void FIDO2Manager::handleGetAssertion(const uint8_t *cborData, size_t cborLen) {
-    FIDO_LOG("处理 GetAssertion");
-
-    if (!_crypto) {
-        sendError(CTAP_GET_ASSERTION, CTAP1_ERR_OTHER);
-        return;
-    }
-
-    // 解析 CBOR
-    size_t offset = 0;
-    uint8_t majorType;
-    uint64_t mapCount;
-    if (!decodeCBORHeader(cborData, cborLen, offset, majorType, mapCount) || majorType != 0xA0) {
-        sendError(CTAP_GET_ASSERTION, CTAP1_ERR_INVALID_PARAMETER);
-        return;
-    }
-
-    char rpID[128] = {0};
-    uint8_t clientDataHash[32] = {0};
-    bool hasCDHash = false;
-    uint8_t allowCredID[64] = {0};
-    size_t allowCredIDLen = 0;
-    bool hasAllowList = false;
-
-    for (uint64_t i = 0; i < mapCount && offset < cborLen; i++) {
-        int64_t key;
-        if (!decodeCBORInt(cborData, cborLen, offset, key)) break;
-
-        switch (key) {
-            case 1: // rpId
-                decodeCBORTextString(cborData, cborLen, offset, rpID, sizeof(rpID));
-                break;
-            case 2: { // clientDataHash
-                const uint8_t *hash;
-                size_t hashLen;
-                decodeCBORByteString(cborData, cborLen, offset, hash, hashLen);
-                if (hashLen == 32) {
-                    memcpy(clientDataHash, hash, 32);
-                    hasCDHash = true;
-                }
-                break;
-            }
-            case 3: { // allowList
-                size_t listOffset = offset;
-                uint8_t listMT;
-                uint64_t listCount;
-                if (decodeCBORHeader(cborData, cborLen, offset, listMT, listCount) && listMT == 0x80 && listCount > 0) {
-                    // 只取第一个凭证
-                    uint64_t innerMapLen;
-                    decodeCBORHeader(cborData, cborLen, offset, majorType, innerMapLen);
-                    for (uint64_t j = 0; j < innerMapLen; j++) {
-                        int64_t allowKey;
-                        decodeCBORInt(cborData, cborLen, offset, allowKey);
-                        if (allowKey == 2) { // id (credential ID)
-                            const uint8_t *credData;
-                            size_t credLen;
-                            decodeCBORByteString(cborData, cborLen, offset, credData, credLen);
-                            if (credLen <= 64) {
-                                memcpy(allowCredID, credData, credLen);
-                                allowCredIDLen = credLen;
-                                hasAllowList = true;
-                            }
-                        } else {
-                            skipCBORValue(cborData, cborLen, offset);
-                        }
-                    }
-                } else {
-                    offset = listOffset;
-                    skipCBORValue(cborData, cborLen, offset);
-                }
-                break;
-            }
-            case 7: // options
-                skipCBORValue(cborData, cborLen, offset);
-                break;
-            case 5: // extensions
-                skipCBORValue(cborData, cborLen, offset);
-                break;
-            default:
-                skipCBORValue(cborData, cborLen, offset);
-                break;
-        }
-    }
-
-    // 计算 RP ID hash
-    uint8_t rpIDHash[32];
-    mbedtls_sha256((const uint8_t *)rpID, strlen(rpID), rpIDHash, 0);
-
-    // 查找凭证
-    std::vector<FIDO2Credential> creds;
-    findCredentialsByRP(rpIDHash, creds);
-
-    if (creds.empty()) {
-        sendError(CTAP_GET_ASSERTION, CTAP2_ERR_NO_CREDENTIALS);
-        return;
-    }
-
-    // 如果传了凭证列表，匹配
-    FIDO2Credential *matched = nullptr;
-    for (auto &c : creds) {
-        if (hasAllowList && allowCredIDLen > 0) {
-            if (memcmp(c.credentialID, allowCredID, min(allowCredIDLen, (size_t)32)) == 0) {
-                matched = &c;
-                break;
-            }
-        } else {
-            matched = &c;
-            break;
-        }
-    }
-
-    if (!matched) {
-        sendError(CTAP_GET_ASSERTION, CTAP2_ERR_NO_CREDENTIALS);
-        return;
-    }
-
-    // 自增签名计数器
-    _signCounter++;
+    // Compute credential ID = SHA256(pubX || pubY)
     {
-        Preferences prefs;
-        prefs.begin(FIDO_NS, false);
-        prefs.putUInt(KEY_COUNTER, _signCounter);
-        prefs.end();
+        uint8_t raw[64]; memcpy(raw,pubX,32); memcpy(raw+32,pubY,32);
+        uint8_t credID[32]; mbedtls_sha256(raw,64,credID,0);
+
+        // RP ID hash
+        uint8_t rpIDHash[32]; mbedtls_sha256((const uint8_t*)rpID,strlen(rpID),rpIDHash,0);
+
+        // Store credential
+        FIDO2Credential cred; memset(&cred,0,sizeof(cred));
+        memcpy(cred.credentialID,credID,32);
+        memcpy(cred.keyDER,pkDer+sizeof(pkDer)-pkDerLen,pkDerLen);
+        cred.keyDERLen=pkDerLen;
+        memcpy(cred.publicKey,pubX,32); memcpy(cred.publicKey+32,pubY,32);
+        memcpy(cred.rpIDHash,rpIDHash,32);
+        strncpy(cred.rpID,rpID,sizeof(cred.rpID)-1);
+        strncpy(cred.userName,userName,sizeof(cred.userName)-1);
+        memcpy(cred.userID,userID,min(userIDLen,(size_t)32));
+        cred.userIDLen=userIDLen; cred.isValid=true;
+
+        if (!storeCredential(cred)) {
+            mbedtls_pk_free(&pk);
+            sendError(CTAP_MAKE_CREDENTIAL,CTAP1_ERR_OTHER);
+            return;
+        }
+
+        // Build authenticator data
+        uint8_t authData[256];
+        size_t authLen = buildAuthData(rpIDHash,credID,32,pubX,pubY,authData,sizeof(authData));
+
+        // Sign authData
+        uint8_t sigDer[128]; size_t sigDerLen=0;
+        if (mbedtls_pk_sign(&pk,MBEDTLS_MD_SHA256,
+                            authData,authLen,
+                            sigDer,sizeof(sigDer),&sigDerLen,
+                            mbedtls_ctr_drbg_random,&_crypto->getCTRDRBG())) {
+            mbedtls_pk_free(&pk);
+            sendError(CTAP_MAKE_CREDENTIAL,CTAP1_ERR_OTHER);
+            return;
+        }
+        uint8_t sig[64]; derSigToRS(sigDer,sigDerLen,sig,64);
+
+        // Build response CBOR
+        uint8_t resp[512]; size_t ro=0;
+        ro+=encodeCBORMap(resp+ro,sizeof(resp)-ro,3);
+        ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,1);
+        ro+=encodeCBORTextString(resp+ro,sizeof(resp)-ro,"packed");
+        ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,2);
+        ro+=encodeCBORByteString(resp+ro,sizeof(resp)-ro,authData,authLen);
+        ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,3);
+        ro+=encodeCBORMap(resp+ro,sizeof(resp)-ro,2);
+        ro+=encodeCBORTextString(resp+ro,sizeof(resp)-ro,"alg");
+        ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,-7);
+        ro+=encodeCBORTextString(resp+ro,sizeof(resp)-ro,"sig");
+        ro+=encodeCBORByteString(resp+ro,sizeof(resp)-ro,sig,64);
+
+        mbedtls_pk_free(&pk);
+        sendResponse(CTAP_MAKE_CREDENTIAL,resp,ro);
+    }
+}
+
+// ---- authenticatorGetAssertion ----
+
+void FIDO2Manager::handleGetAssertion(const uint8_t *cbor, size_t cborLen) {
+    char rpID[128]={}; uint8_t cdHash[32]={}; bool hasCDHash=false;
+    uint8_t allowCred[64]; size_t allowLen=0; bool hasAllow=false;
+
+    {   size_t off=0; uint8_t mt; uint64_t mapN;
+        if (!decodeCBORHeader(cbor,cborLen,off,mt,mapN)||mt!=0xA0)
+            { sendError(CTAP_GET_ASSERTION,CTAP1_ERR_INVALID_PARAMETER); return; }
+        for (uint64_t i=0;i<mapN&&off<cborLen;i++) {
+            int64_t k; if(!decodeCBORInt(cbor,cborLen,off,k)) break;
+            if (k==1) decodeCBORTextString(cbor,cborLen,off,rpID,sizeof(rpID));
+            else if (k==2) { const uint8_t *d; size_t dl;
+                decodeCBORByteString(cbor,cborLen,off,d,dl);
+                if(dl==32){memcpy(cdHash,d,32);hasCDHash=true;}
+            } else if (k==3) { // allowList
+                uint8_t mt2; uint64_t acnt;
+                if(decodeCBORHeader(cbor,cborLen,off,mt2,acnt)&&mt2==0x80&&acnt>0){
+                    size_t so=off; uint64_t mm;
+                    if(decodeCBORHeader(cbor,cborLen,off,mt,mm)&&mt==0xA0){
+                        for(uint64_t j=0;j<mm;j++){
+                            int64_t ak; decodeCBORInt(cbor,cborLen,off,ak);
+                            if(ak==2){const uint8_t *d;size_t dl;
+                                decodeCBORByteString(cbor,cborLen,off,d,dl);
+                                allowLen=min(dl,sizeof(allowCred));
+                                memcpy(allowCred,d,allowLen);hasAllow=true;
+                            }else skipCBORValue(cbor,cborLen,off);
+                        }
+                    }else{off=so;skipCBORValue(cbor,cborLen,off);}
+                } else { skipCBORValue(cbor,cborLen,off); }
+            } else skipCBORValue(cbor,cborLen,off);
+        }
     }
 
-    // 构建 authData
-    uint8_t authData[128];
-    memset(authData, 0, sizeof(authData));
-    memcpy(authData, rpIDHash, 32);
-    authData[32] = 0x05; // UP + AT flags
-    authData[33] = (_signCounter >> 24) & 0xFF;
-    authData[34] = (_signCounter >> 16) & 0xFF;
-    authData[35] = (_signCounter >> 8) & 0xFF;
-    authData[36] = _signCounter & 0xFF;
+    uint8_t rpIDHash[32]; mbedtls_sha256((const uint8_t*)rpID,strlen(rpID),rpIDHash,0);
+    std::vector<FIDO2Credential> creds;
+    findCredentialsByRP(rpIDHash,creds);
+    if (creds.empty()) { sendError(CTAP_GET_ASSERTION,CTAP2_ERR_NO_CREDENTIALS); return; }
 
-    // 构建签名消息: authData + clientDataHash
-    uint8_t sigMsg[160];
-    memcpy(sigMsg, authData, 37);
-    memcpy(sigMsg + 37, clientDataHash, 32);
-    size_t sigMsgLen = hasCDHash ? 69 : 37;
+    FIDO2Credential *match=nullptr;
+    for(auto &c:creds){
+        if(hasAllow&&allowLen>0){
+            if(memcmp(c.credentialID,allowCred,min(allowLen,(size_t)32))==0){match=&c;break;}
+        }else{match=&c;break;}
+    }
+    if(!match){sendError(CTAP_GET_ASSERTION,CTAP2_ERR_NO_CREDENTIALS);return;}
 
-    // 用匹配的私钥签名
+    _signCounter++;
+    { Preferences p; p.begin(FIDO_NS,false); p.putUInt(KEY_COUNTER,_signCounter); p.end(); }
+
+    // authData
+    uint8_t authData[37]; memset(authData,0,sizeof(authData));
+    memcpy(authData,rpIDHash,32);
+    authData[32]=0x05; // UP+AT
+    authData[33]=(_signCounter>>24)&0xFF; authData[34]=(_signCounter>>16)&0xFF;
+    authData[35]=(_signCounter>>8)&0xFF; authData[36]=_signCounter&0xFF;
+
+    // sign authData + clientDataHash
+    uint8_t sigMsg[128]; size_t smLen=37;
+    memcpy(sigMsg,authData,37);
+    if(hasCDHash){memcpy(sigMsg+37,cdHash,32);smLen=69;}
+
+    // Load key from DER
     mbedtls_pk_context pk;
-    mbedtls_pk_init(&pk);
-    mbedtls_pk_setup(&pk, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
-    mbedtls_ecp_group_load(&mbedtls_pk_ec(pk)->grp, MBEDTLS_ECP_DP_SECP256R1);
-    mbedtls_mpi_read_binary(&mbedtls_pk_ec(pk)->d, matched->privateKey, 32);
+    if (!pkFromDER(&pk, match->keyDER, match->keyDERLen)) {
+        sendError(CTAP_GET_ASSERTION,CTAP1_ERR_OTHER);
+        return;
+    }
 
-    // 构建完整公钥点 (0x04 || X || Y)
-    uint8_t pubKeyFull[65];
-    pubKeyFull[0] = 0x04;
-    memcpy(pubKeyFull + 1, matched->publicKey, 64);
-    mbedtls_ecp_point_read_binary(&mbedtls_pk_ec(pk)->grp, &mbedtls_pk_ec(pk)->Q,
-                                   pubKeyFull, 65);
-
-    uint8_t sig[64];
-    size_t sigLen = 64;
-    mbedtls_mpi r, s;
-    mbedtls_mpi_init(&r);
-    mbedtls_mpi_init(&s);
-    mbedtls_ecdsa_sign(&mbedtls_pk_ec(pk)->grp, &r, &s,
-                        &mbedtls_pk_ec(pk)->d,
-                        sigMsg, sigMsgLen,
-                        mbedtls_ctr_drbg_random, &_crypto->getCTRDRBG());
-    mbedtls_mpi_write_binary(&r, sig, 32);
-    mbedtls_mpi_write_binary(&s, sig + 32, 32);
-    mbedtls_mpi_free(&r);
-    mbedtls_mpi_free(&s);
+    uint8_t sigDer[128]; size_t sigDerLen=0;
+    if (mbedtls_pk_sign(&pk,MBEDTLS_MD_SHA256,
+                        sigMsg,smLen,
+                        sigDer,sizeof(sigDer),&sigDerLen,
+                        mbedtls_ctr_drbg_random,&_crypto->getCTRDRBG())) {
+        mbedtls_pk_free(&pk);
+        sendError(CTAP_GET_ASSERTION,CTAP1_ERR_OTHER);
+        return;
+    }
+    uint8_t sigRS[64]; derSigToRS(sigDer,sigDerLen,sigRS,64);
     mbedtls_pk_free(&pk);
 
-    // 构建 CBOR 响应
-    uint8_t resp[512];
-    size_t respOff = 0;
-    respOff += encodeCBORMap(resp + respOff, sizeof(resp) - respOff, 4);
-
-    // 1: credential (包含凭证 ID)
-    respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, 1);
-    respOff += encodeCBORMap(resp + respOff, sizeof(resp) - respOff, 2);
-    respOff += encodeCBORTextString(resp + respOff, sizeof(resp) - respOff, "type");
-    respOff += encodeCBORTextString(resp + respOff, sizeof(resp) - respOff, "public-key");
-    respOff += encodeCBORTextString(resp + respOff, sizeof(resp) - respOff, "id");
-    respOff += encodeCBORByteString(resp + respOff, sizeof(resp) - respOff, matched->credentialID, 32);
-
-    // 2: authData
-    respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, 2);
-    respOff += encodeCBORByteString(resp + respOff, sizeof(resp) - respOff, authData, 37);
-
-    // 3: signature
-    respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, 3);
-    respOff += encodeCBORByteString(resp + respOff, sizeof(resp) - respOff, sig, sigLen);
-
-    // 4: user (可选)
-    if (strlen(matched->userName) > 0) {
-        respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, 4);
-        respOff += encodeCBORMap(resp + respOff, sizeof(resp) - respOff, 2);
-        respOff += encodeCBORTextString(resp + respOff, sizeof(resp) - respOff, "name");
-        respOff += encodeCBORTextString(resp + respOff, sizeof(resp) - respOff, matched->userName);
-        respOff += encodeCBORTextString(resp + respOff, sizeof(resp) - respOff, "id");
-        respOff += encodeCBORByteString(resp + respOff, sizeof(resp) - respOff, matched->userID, matched->userIDLen);
+    // Build response
+    uint8_t resp[512]; size_t ro=0;
+    ro+=encodeCBORMap(resp+ro,sizeof(resp)-ro,4);
+    ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,1); // credential
+    ro+=encodeCBORMap(resp+ro,sizeof(resp)-ro,2);
+    ro+=encodeCBORTextString(resp+ro,sizeof(resp)-ro,"type");
+    ro+=encodeCBORTextString(resp+ro,sizeof(resp)-ro,"public-key");
+    ro+=encodeCBORTextString(resp+ro,sizeof(resp)-ro,"id");
+    ro+=encodeCBORByteString(resp+ro,sizeof(resp)-ro,match->credentialID,32);
+    ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,2); // authData
+    ro+=encodeCBORByteString(resp+ro,sizeof(resp)-ro,authData,37);
+    ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,3); // signature
+    ro+=encodeCBORByteString(resp+ro,sizeof(resp)-ro,sigRS,64);
+    if(strlen(match->userName)>0){
+        ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,4);
+        ro+=encodeCBORMap(resp+ro,sizeof(resp)-ro,2);
+        ro+=encodeCBORTextString(resp+ro,sizeof(resp)-ro,"name");
+        ro+=encodeCBORTextString(resp+ro,sizeof(resp)-ro,match->userName);
+        ro+=encodeCBORTextString(resp+ro,sizeof(resp)-ro,"id");
+        ro+=encodeCBORByteString(resp+ro,sizeof(resp)-ro,match->userID,match->userIDLen);
     }
-
-    sendResponse(CTAP_GET_ASSERTION, resp, respOff);
+    sendResponse(CTAP_GET_ASSERTION,resp,ro);
 }
 
-// authenticatorClientPIN
-void FIDO2Manager::handleClientPIN(const uint8_t *cborData, size_t cborLen) {
-    FIDO_LOG("处理 ClientPIN (暂不支持)");
+// ---- ClientPIN ----
 
-    // 如果不支持 PIN，返回错误
-    uint8_t resp[16];
-    size_t respOff = 0;
-    respOff += encodeCBORMap(resp + respOff, sizeof(resp) - respOff, 2);
-    respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, 1);  // pinUvAuthProtocol
-    respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, 0);  // none
-    respOff += encodeCBORInt(resp + respOff, sizeof(resp) - respOff, 2);  // pinUvAuthToken
-    respOff += encodeCBORByteString(resp + respOff, sizeof(resp) - respOff, nullptr, 0);
-
-    sendResponse(CTAP_CLIENT_PIN, resp, respOff);
+void FIDO2Manager::handleClientPIN(const uint8_t*,size_t){
+    uint8_t resp[16]; size_t ro=0;
+    ro+=encodeCBORMap(resp+ro,sizeof(resp)-ro,2);
+    ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,1); ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,0);
+    ro+=encodeCBORInt(resp+ro,sizeof(resp)-ro,2); ro+=encodeCBORByteString(resp+ro,sizeof(resp)-ro,nullptr,0);
+    sendResponse(CTAP_CLIENT_PIN,resp,ro);
 }
 
-// authenticatorReset
-void FIDO2Manager::handleReset() {
-    FIDO_LOG("处理 Reset - 清除所有凭证");
+// ---- Reset ----
 
-    // 清除 Preferences
-    Preferences prefs;
-    prefs.begin(FIDO_NS, false);
-    prefs.clear();
-    prefs.end();
-
-    _credentialCount = 0;
-    _signCounter = 0;
-
-    sendResponse(CTAP_RESET, nullptr, 0);
+void FIDO2Manager::handleReset(){
+    { Preferences p; p.begin(FIDO_NS,false); p.clear(); p.end(); }
+    _credentialCount=0; _signCounter=0;
+    sendResponse(CTAP_RESET,nullptr,0);
 }
+void FIDO2Manager::resetCredentials(){handleReset();}
 
-void FIDO2Manager::resetCredentials() {
-    handleReset();
-}
+// ---- SEND RESPONSES ----
 
-// ---- 响应发送 ----
-
-void FIDO2Manager::sendResponse(uint8_t cmd, const uint8_t *payload, size_t payloadLen) {
-    if (!_connected || !_controlPoint) return;
-
-    // U2F 响应: [0x00] [payload...]
-    size_t totalLen = 1 + payloadLen;
-    uint8_t *resp = new uint8_t[totalLen];
-    resp[0] = 0x00; // U2F 成功状态
-    if (payloadLen > 0) {
-        memcpy(resp + 1, payload, payloadLen);
-    }
-
-    _controlPoint->setValue(resp, totalLen);
-    _controlPoint->indicate();
-
+void FIDO2Manager::sendResponse(uint8_t cmd, const uint8_t *payload, size_t payloadLen){
+    if(!_connected||!_controlPoint)return;
+    size_t total=1+payloadLen;
+    uint8_t *resp=new uint8_t[total];
+    resp[0]=0x00; if(payloadLen)memcpy(resp+1,payload,payloadLen);
+    _controlPoint->setValue(resp,total); _controlPoint->indicate();
     delete[] resp;
-    FIDO_LOG("发送响应: cmd=0x%02X, 长度=%d", cmd, totalLen);
+}
+void FIDO2Manager::sendError(uint8_t cmd, uint8_t status){
+    if(!_connected||!_controlPoint)return;
+    uint8_t r[1]={status}; _controlPoint->setValue(r,1); _controlPoint->indicate();
+}
+void FIDO2Manager::sendKeepAlive(uint8_t status){
+    if(!_connected||!_status)return;
+    uint8_t ka[1]={status}; _status->setValue(ka,1); _status->notify();
 }
 
-void FIDO2Manager::sendError(uint8_t cmd, uint8_t status) {
-    if (!_connected || !_controlPoint) return;
+// ---- BUILD AUTHENTICATOR DATA (MakeCredential) ----
 
-    uint8_t resp[2] = {status, 0x00};
-    _controlPoint->setValue(resp, 1);
-    _controlPoint->indicate();
-    FIDO_LOG("发送错误: cmd=0x%02X, status=0x%02X", cmd, status);
-}
-
-void FIDO2Manager::sendKeepAlive(uint8_t status) {
-    if (!_connected || !_status) return;
-
-    uint8_t ka[1] = {status};
-    _status->setValue(ka, 1);
-    _status->notify();
-}
-
-// ---- CBOR 编码 ----
-
-size_t FIDO2Manager::encodeCBORHeader(uint8_t *buf, size_t bufSize, uint8_t majorType, uint64_t value) {
-    size_t len = 0;
-    if (bufSize < 1) return 0;
-
-    if (value <= 23) {
-        buf[0] = majorType | (uint8_t)value;
-        len = 1;
-    } else if (value <= 0xFF) {
-        if (bufSize >= 2) {
-            buf[0] = majorType | 24;
-            buf[1] = (uint8_t)value;
-            len = 2;
-        }
-    } else if (value <= 0xFFFF) {
-        if (bufSize >= 3) {
-            buf[0] = majorType | 25;
-            buf[1] = (uint8_t)(value >> 8);
-            buf[2] = (uint8_t)value;
-            len = 3;
-        }
-    } else if (value <= 0xFFFFFFFFULL) {
-        if (bufSize >= 5) {
-            buf[0] = majorType | 26;
-            buf[1] = (uint8_t)(value >> 24);
-            buf[2] = (uint8_t)(value >> 16);
-            buf[3] = (uint8_t)(value >> 8);
-            buf[4] = (uint8_t)value;
-            len = 5;
-        }
-    } else {
-        if (bufSize >= 9) {
-            buf[0] = majorType | 27;
-            for (int i = 0; i < 8; i++) {
-                buf[1 + i] = (uint8_t)(value >> (56 - 8 * i));
-            }
-            len = 9;
-        }
-    }
-    return len;
-}
-
-size_t FIDO2Manager::encodeCBORInt(uint8_t *buf, size_t bufSize, int64_t value) {
-    if (value >= 0) {
-        return encodeCBORHeader(buf, bufSize, 0x00, (uint64_t)value);
-    } else {
-        return encodeCBORHeader(buf, bufSize, 0x20, (uint64_t)(-1 - value));
-    }
-}
-
-size_t FIDO2Manager::encodeCBORByteString(uint8_t *buf, size_t bufSize, const uint8_t *data, size_t dataLen) {
-    size_t off = encodeCBORHeader(buf, bufSize, 0x40, dataLen);
-    if (off == 0 || off + dataLen > bufSize) return 0;
-    if (data && dataLen > 0) {
-        memcpy(buf + off, data, dataLen);
-    }
-    return off + dataLen;
-}
-
-size_t FIDO2Manager::encodeCBORTextString(uint8_t *buf, size_t bufSize, const char *str) {
-    size_t len = strlen(str);
-    return encodeCBORByteString(buf, bufSize, (const uint8_t *)str, len);
-}
-
-size_t FIDO2Manager::encodeCBORArray(uint8_t *buf, size_t bufSize, size_t count) {
-    return encodeCBORHeader(buf, bufSize, 0x80, count);
-}
-
-size_t FIDO2Manager::encodeCBORMap(uint8_t *buf, size_t bufSize, size_t count) {
-    return encodeCBORHeader(buf, bufSize, 0xA0, count);
-}
-
-size_t FIDO2Manager::encodeCBORBool(uint8_t *buf, size_t bufSize, bool value) {
-    if (bufSize < 1) return 0;
-    buf[0] = value ? 0xF5 : 0xF4;
-    return 1;
-}
-
-size_t FIDO2Manager::encodeCBORNull(uint8_t *buf, size_t bufSize) {
-    if (bufSize < 1) return 0;
-    buf[0] = 0xF6;
-    return 1;
-}
-
-// ---- CBOR 解码 ----
-
-bool FIDO2Manager::decodeCBORHeader(const uint8_t *data, size_t len, size_t &offset, uint8_t &majorType, uint64_t &value) {
-    if (offset >= len) return false;
-
-    uint8_t initial = data[offset++];
-    majorType = initial & 0xE0;
-    uint8_t extra = initial & 0x1F;
-
-    if (extra <= 23) {
-        value = extra;
-    } else if (extra == 24) {
-        if (offset + 1 > len) return false;
-        value = data[offset++];
-    } else if (extra == 25) {
-        if (offset + 2 > len) return false;
-        value = ((uint64_t)data[offset] << 8) | data[offset + 1];
-        offset += 2;
-    } else if (extra == 26) {
-        if (offset + 4 > len) return false;
-        value = ((uint64_t)data[offset] << 24) | ((uint64_t)data[offset + 1] << 16) |
-                ((uint64_t)data[offset + 2] << 8) | data[offset + 3];
-        offset += 4;
-    } else if (extra == 27) {
-        if (offset + 8 > len) return false;
-        value = 0;
-        for (int i = 0; i < 8; i++) {
-            value = (value << 8) | data[offset + i];
-        }
-        offset += 8;
-    } else {
-        return false;
-    }
-    return true;
-}
-
-bool FIDO2Manager::decodeCBORInt(const uint8_t *data, size_t len, size_t &offset, int64_t &value) {
-    uint8_t majorType;
-    uint64_t raw;
-    if (!decodeCBORHeader(data, len, offset, majorType, raw)) return false;
-
-    if (majorType == 0x00) {
-        value = (int64_t)raw;
-        return true;
-    } else if (majorType == 0x20) {
-        value = -1 - (int64_t)raw;
-        return true;
-    }
-    return false;
-}
-
-bool FIDO2Manager::decodeCBORByteString(const uint8_t *data, size_t len, size_t &offset, const uint8_t *&out, size_t &outLen) {
-    uint8_t majorType;
-    uint64_t rawLen;
-    if (!decodeCBORHeader(data, len, offset, majorType, rawLen)) return false;
-
-    if (majorType != 0x40) return false;
-    if (offset + rawLen > len) return false;
-
-    out = data + offset;
-    outLen = (size_t)rawLen;
-    offset += outLen;
-    return true;
-}
-
-bool FIDO2Manager::decodeCBORTextString(const uint8_t *data, size_t len, size_t &offset, char *out, size_t outSize) {
-    const uint8_t *str;
-    size_t strLen;
-    if (!decodeCBORByteString(data, len, offset, str, strLen)) return false;
-
-    size_t copyLen = min(strLen, outSize - 1);
-    memcpy(out, str, copyLen);
-    out[copyLen] = '\0';
-    return true;
-}
-
-bool FIDO2Manager::skipCBORValue(const uint8_t *data, size_t len, size_t &offset) {
-    if (offset >= len) return false;
-
-    uint8_t initial = data[offset];
-    uint8_t majorType = initial & 0xE0;
-    uint8_t extra = initial & 0x1F;
-
-    // 简单类型 (boolean, null, undefined)
-    if (majorType == 0xE0 && extra == 0x1F) {
-        offset += 2; // 0xF9-0xFB (half/float/double) or 0xFF (break)
-        return true;
-    }
-
-    uint64_t value;
-    if (!decodeCBORHeader(data, len, offset, majorType, value)) return false;
-
-    switch (majorType) {
-        case 0x00: // unsigned int
-        case 0x20: // negative int
-        case 0xE0: // simple/float
-            break;
-        case 0x40: // byte string
-        case 0x60: // text string
-            if (offset + value > len) return false;
-            offset += (size_t)value;
-            break;
-        case 0x80: // array
-            for (uint64_t i = 0; i < value; i++) {
-                if (!skipCBORValue(data, len, offset)) return false;
-            }
-            break;
-        case 0xA0: // map
-            for (uint64_t i = 0; i < value * 2; i++) {
-                if (!skipCBORValue(data, len, offset)) return false;
-            }
-            break;
-        default:
-            return false;
-    }
-    return true;
-}
-
-// ---- 认证器数据构建 ----
-
-size_t FIDO2Manager::buildAuthDataMakeCred(const uint8_t *rpIDHash, const uint8_t *credID, uint16_t credIDLen,
-                                            const uint8_t *pubKeyX, const uint8_t *pubKeyY,
-                                            uint8_t *out, size_t outLen) {
-    size_t off = 0;
-    if (off + 32 > outLen) return 0;
-    memcpy(out + off, rpIDHash, 32);
-    off += 32;
-
-    if (off + 1 > outLen) return 0;
-    out[off] = 0x41; // UP (0x01) + AT (0x40) + UV not set
-    off += 1;
-
-    if (off + 4 > outLen) return 0;
+size_t FIDO2Manager::buildAuthData(const uint8_t *rpIDHash,
+                                    const uint8_t *credID, uint16_t credIDLen,
+                                    const uint8_t *pubX, const uint8_t *pubY,
+                                    uint8_t *out, size_t outLen){
+    size_t o=0;
+    if(o+32>outLen)return 0; memcpy(out+o,rpIDHash,32); o+=32;
+    if(o+1>outLen)return 0; out[o++]=0x41; // UP+AT
     _signCounter++;
-    out[off] = (_signCounter >> 24) & 0xFF;
-    out[off + 1] = (_signCounter >> 16) & 0xFF;
-    out[off + 2] = (_signCounter >> 8) & 0xFF;
-    out[off + 3] = _signCounter & 0xFF;
-    off += 4;
+    if(o+4>outLen)return 0;
+    out[o++]=(_signCounter>>24)&0xFF; out[o++]=(_signCounter>>16)&0xFF;
+    out[o++]=(_signCounter>>8)&0xFF; out[o++]=_signCounter&0xFF;
+    { Preferences p; p.begin(FIDO_NS,false); p.putUInt(KEY_COUNTER,_signCounter); p.end(); }
 
-    // AAGUID
-    if (off + 16 > outLen) return 0;
-    memcpy(out + off, _aaguid, 16);
-    off += 16;
+    if(o+16>outLen)return 0; memcpy(out+o,_aaguid,16); o+=16;
+    if(o+2>outLen)return 0; out[o++]=(credIDLen>>8)&0xFF; out[o++]=credIDLen&0xFF;
+    if(o+credIDLen>outLen)return 0; memcpy(out+o,credID,credIDLen); o+=credIDLen;
 
-    // Credential ID length
-    if (off + 2 > outLen) return 0;
-    out[off] = (credIDLen >> 8) & 0xFF;
-    out[off + 1] = credIDLen & 0xFF;
-    off += 2;
+    // COSE_Key
+    o+=encodeCOSEKey(out+o,outLen-o,pubX,pubY);
+    return o;
+}
 
-    // Credential ID
-    if (off + credIDLen > outLen) return 0;
-    memcpy(out + off, credID, credIDLen);
-    off += credIDLen;
+size_t FIDO2Manager::encodeCOSEKey(uint8_t *buf, size_t bufSize, const uint8_t *x, const uint8_t *y){
+    size_t o=0;
+    o+=encodeCBORMap(buf+o,bufSize-o,5);
+    o+=encodeCBORInt(buf+o,bufSize-o,1); o+=encodeCBORInt(buf+o,bufSize-o,2);  // kty=EC2
+    o+=encodeCBORInt(buf+o,bufSize-o,3); o+=encodeCBORInt(buf+o,bufSize-o,-7); // alg=ES256
+    o+=encodeCBORInt(buf+o,bufSize-o,-1); o+=encodeCBORInt(buf+o,bufSize-o,1); // crv=P-256
+    o+=encodeCBORInt(buf+o,bufSize-o,-2); o+=encodeCBORByteString(buf+o,bufSize-o,x,32);
+    o+=encodeCBORInt(buf+o,bufSize-o,-3); o+=encodeCBORByteString(buf+o,bufSize-o,y,32);
+    return o;
+}
 
-    // CBOR-encoded credential public key
-    if (off + 100 > outLen) return 0;
-    off += encodeCredentialPublicKey(out + off, outLen - off, pubKeyX, pubKeyY);
+// ---- CBOR ENCODING ----
 
-    // Save counter
-    {
-        Preferences prefs;
-        prefs.begin(FIDO_NS, false);
-        prefs.putUInt(KEY_COUNTER, _signCounter);
-        prefs.end();
+size_t FIDO2Manager::encodeCBORHeader(uint8_t *buf, size_t bufSize, uint8_t major, uint64_t val){
+    if(bufSize<1)return 0;
+    if(val<=23)               { buf[0]=major|(uint8_t)val; return 1; }
+    if(val<=0xFF&&bufSize>=2) { buf[0]=major|24; buf[1]=(uint8_t)val; return 2; }
+    if(val<=0xFFFF&&bufSize>=3){ buf[0]=major|25; buf[1]=val>>8; buf[2]=val; return 3; }
+    if(val<=0xFFFFFFFFULL&&bufSize>=5){ buf[0]=major|26;
+        buf[1]=val>>24; buf[2]=val>>16; buf[3]=val>>8; buf[4]=val; return 5; }
+    if(bufSize>=9){ buf[0]=major|27;
+        for(int i=0;i<8;i++) buf[1+i]=(val>>(56-8*i))&0xFF; return 9; }
+    return 0;
+}
+size_t FIDO2Manager::encodeCBORInt(uint8_t *b, size_t bs, int64_t v){
+    return v>=0 ? encodeCBORHeader(b,bs,0x00,v) : encodeCBORHeader(b,bs,0x20,(uint64_t)(-1-v));
+}
+size_t FIDO2Manager::encodeCBORByteString(uint8_t *b, size_t bs, const uint8_t *d, size_t dl){
+    size_t o=encodeCBORHeader(b,bs,0x40,dl);
+    if(!o||o+dl>bs)return 0; if(d&&dl)memcpy(b+o,d,dl); return o+dl;
+}
+size_t FIDO2Manager::encodeCBORTextString(uint8_t *b, size_t bs, const char *s){
+    return encodeCBORByteString(b,bs,(const uint8_t*)s,strlen(s));
+}
+size_t FIDO2Manager::encodeCBORArray(uint8_t *b, size_t bs, size_t c){ return encodeCBORHeader(b,bs,0x80,c); }
+size_t FIDO2Manager::encodeCBORMap(uint8_t *b, size_t bs, size_t c){ return encodeCBORHeader(b,bs,0xA0,c); }
+size_t FIDO2Manager::encodeCBORBool(uint8_t *b, size_t bs, bool v){
+    if(bs<1)return 0; b[0]=v?0xF5:0xF4; return 1;
+}
+size_t FIDO2Manager::encodeCBORNull(uint8_t *b, size_t bs){
+    if(bs<1)return 0; b[0]=0xF6; return 1;
+}
+
+// ---- CBOR DECODING ----
+
+bool FIDO2Manager::decodeCBORHeader(const uint8_t *d, size_t len, size_t &off, uint8_t &mt, uint64_t &val){
+    if(off>=len)return false;
+    uint8_t init=d[off++]; mt=init&0xE0; uint8_t x=init&0x1F;
+    if(x<=23) val=x;
+    else if(x==24){if(off+1>len)return false; val=d[off++];}
+    else if(x==25){if(off+2>len)return false; val=((uint64_t)d[off]<<8)|d[off+1]; off+=2;}
+    else if(x==26){if(off+4>len)return false;
+        val=((uint64_t)d[off]<<24)|((uint64_t)d[off+1]<<16)|((uint64_t)d[off+2]<<8)|d[off+3]; off+=4;}
+    else if(x==27){if(off+8>len)return false; val=0;
+        for(int i=0;i<8;i++)val=(val<<8)|d[off+i]; off+=8;}
+    else return false;
+    return true;
+}
+bool FIDO2Manager::decodeCBORInt(const uint8_t *d, size_t len, size_t &off, int64_t &v){
+    uint8_t mt; uint64_t raw;
+    if(!decodeCBORHeader(d,len,off,mt,raw))return false;
+    if(mt==0x00){v=(int64_t)raw;return true;}
+    if(mt==0x20){v=-1-(int64_t)raw;return true;}
+    return false;
+}
+bool FIDO2Manager::decodeCBORByteString(const uint8_t *d, size_t len, size_t &off, const uint8_t *&out, size_t &outLen){
+    uint8_t mt; uint64_t rl;
+    if(!decodeCBORHeader(d,len,off,mt,rl)||mt!=0x40)return false;
+    if(off+rl>len)return false; out=d+off; outLen=(size_t)rl; off+=outLen; return true;
+}
+bool FIDO2Manager::decodeCBORTextString(const uint8_t *d, size_t len, size_t &off, char *out, size_t outSize){
+    const uint8_t *s; size_t sl;
+    if(!decodeCBORByteString(d,len,off,s,sl))return false;
+    size_t cp=min(sl,outSize-1); memcpy(out,s,cp); out[cp]=0; return true;
+}
+bool FIDO2Manager::skipCBORValue(const uint8_t *d, size_t len, size_t &off){
+    if(off>=len)return false;
+    uint8_t init=d[off]; (void)init; uint8_t mt; uint64_t val;
+    if(!decodeCBORHeader(d,len,off,mt,val))return false;
+    switch(mt){
+        case 0x00: case 0x20: case 0xE0: break;
+        case 0x40: case 0x60: if(off+val>len)return false; off+=(size_t)val; break;
+        case 0x80: for(uint64_t i=0;i<val;i++){if(!skipCBORValue(d,len,off))return false;} break;
+        case 0xA0: for(uint64_t i=0;i<val*2;i++){if(!skipCBORValue(d,len,off))return false;} break;
+        default: return false;
     }
-
-    return off;
-}
-
-size_t FIDO2Manager::encodeCredentialPublicKey(uint8_t *buf, size_t bufSize, const uint8_t *pubKeyX, const uint8_t *pubKeyY) {
-    // COSE_Key format for EC2 P-256
-    size_t off = 0;
-    off += encodeCBORMap(buf + off, bufSize - off, 5);
-
-    // 1: key type (2 = EC2)
-    off += encodeCBORInt(buf + off, bufSize - off, 1);
-    off += encodeCBORInt(buf + off, bufSize - off, 2);
-
-    // 3: algorithm (-7 = ES256)
-    off += encodeCBORInt(buf + off, bufSize - off, 3);
-    off += encodeCBORInt(buf + off, bufSize - off, -7);
-
-    // -1: curve (1 = P-256)
-    off += encodeCBORInt(buf + off, bufSize - off, -1);
-    off += encodeCBORInt(buf + off, bufSize - off, 1);
-
-    // -2: x coordinate
-    off += encodeCBORInt(buf + off, bufSize - off, -2);
-    off += encodeCBORByteString(buf + off, bufSize - off, pubKeyX, 32);
-
-    // -3: y coordinate
-    off += encodeCBORInt(buf + off, bufSize - off, -3);
-    off += encodeCBORByteString(buf + off, bufSize - off, pubKeyY, 32);
-
-    return off;
-}
-
-// ---- 凭证存储 ----
-
-bool FIDO2Manager::storeCredential(const FIDO2Credential &cred) {
-    if (_credentialCount >= _credentialMax) return false;
-
-    Preferences prefs;
-    prefs.begin(FIDO_NS, false);
-
-    char key[32];
-    // 存储每个凭证字段
-    snprintf(key, sizeof(key), "cr_%d_id", _credentialCount);
-    prefs.putBytes(key, cred.credentialID, 32);
-    snprintf(key, sizeof(key), "cr_%d_pk", _credentialCount);
-    prefs.putBytes(key, cred.privateKey, 32);
-    snprintf(key, sizeof(key), "cr_%d_pub", _credentialCount);
-    prefs.putBytes(key, cred.publicKey, 64);
-    snprintf(key, sizeof(key), "cr_%d_rp", _credentialCount);
-    prefs.putBytes(key, cred.rpIDHash, 32);
-    snprintf(key, sizeof(key), "cr_%d_rps", _credentialCount);
-    prefs.putString(key, cred.rpID);
-    snprintf(key, sizeof(key), "cr_%d_un", _credentialCount);
-    prefs.putString(key, cred.userName);
-    snprintf(key, sizeof(key), "cr_%d_uid", _credentialCount);
-    prefs.putBytes(key, cred.userID, cred.userIDLen);
-    snprintf(key, sizeof(key), "cr_%d_uidl", _credentialCount);
-    prefs.putUChar(key, cred.userIDLen);
-    snprintf(key, sizeof(key), "cr_%d_valid", _credentialCount);
-    prefs.putBool(key, true);
-
-    _credentialCount++;
-    prefs.putUInt(KEY_CRED_COUNT, _credentialCount);
-    prefs.end();
-
-    FIDO_LOG("凭证已存储 #%d: %s", _credentialCount - 1, cred.rpID);
     return true;
 }
 
-bool FIDO2Manager::findCredential(const uint8_t *rpIDHash, const uint8_t *credID, uint16_t credIDLen, FIDO2Credential &out) {
-    Preferences prefs;
-    prefs.begin(FIDO_NS, true);
+// ---- CREDENTIAL STORAGE (NVS) ----
 
-    for (int i = 0; i < _credentialCount; i++) {
-        char key[32];
-        snprintf(key, sizeof(key), "cr_%d_valid", i);
-        if (!prefs.getBool(key, false)) continue;
+bool FIDO2Manager::storeCredential(const FIDO2Credential &cred){
+    if(_credentialCount>=_credentialMax)return false;
+    Preferences p; p.begin(FIDO_NS,false);
+    char k[32];
+    snprintf(k,sizeof(k),"cr_%d_id",_credentialCount); p.putBytes(k,cred.credentialID,32);
+    snprintf(k,sizeof(k),"cr_%d_kd",_credentialCount); p.putBytes(k,cred.keyDER,cred.keyDERLen);
+    snprintf(k,sizeof(k),"cr_%d_kl",_credentialCount); p.putUShort(k,cred.keyDERLen);
+    snprintf(k,sizeof(k),"cr_%d_pub",_credentialCount); p.putBytes(k,cred.publicKey,64);
+    snprintf(k,sizeof(k),"cr_%d_rp",_credentialCount); p.putBytes(k,cred.rpIDHash,32);
+    snprintf(k,sizeof(k),"cr_%d_rps",_credentialCount); p.putString(k,cred.rpID);
+    snprintf(k,sizeof(k),"cr_%d_un",_credentialCount); p.putString(k,cred.userName);
+    snprintf(k,sizeof(k),"cr_%d_uid",_credentialCount); p.putBytes(k,cred.userID,cred.userIDLen);
+    snprintf(k,sizeof(k),"cr_%d_udl",_credentialCount); p.putUChar(k,cred.userIDLen);
+    snprintf(k,sizeof(k),"cr_%d_v",_credentialCount); p.putBool(k,true);
+    _credentialCount++; p.putUInt(KEY_CRED_COUNT,_credentialCount);
+    p.end(); FIDO_LOG("credential #%d stored: %s",_credentialCount-1,cred.rpID);
+    return true;
+}
 
-        snprintf(key, sizeof(key), "cr_%d_id", i);
-        uint8_t storedID[32];
-        size_t storedLen = prefs.getBytes(key, storedID, 32);
+bool FIDO2Manager::findCredentialsByRP(const uint8_t *rpIDHash, std::vector<FIDO2Credential> &out){
+    Preferences p; p.begin(FIDO_NS,true);
+    for(int i=0;i<_credentialCount;i++){
+        char k[32]; snprintf(k,sizeof(k),"cr_%d_v",i);
+        if(!p.getBool(k,false))continue;
+        snprintf(k,sizeof(k),"cr_%d_rp",i);
+        uint8_t srp[32]; p.getBytes(k,srp,32);
+        if(memcmp(srp,rpIDHash,32)!=0)continue;
+        FIDO2Credential c; memset(&c,0,sizeof(c));
+        memcpy(c.rpIDHash,srp,32);
+        snprintf(k,sizeof(k),"cr_%d_id",i); p.getBytes(k,c.credentialID,32);
+        snprintf(k,sizeof(k),"cr_%d_kl",i); c.keyDERLen=p.getUShort(k,0);
+        snprintf(k,sizeof(k),"cr_%d_kd",i); p.getBytes(k,c.keyDER,c.keyDERLen);
+        snprintf(k,sizeof(k),"cr_%d_pub",i); p.getBytes(k,c.publicKey,64);
+        snprintf(k,sizeof(k),"cr_%d_rps",i); strncpy(c.rpID,p.getString(k).c_str(),sizeof(c.rpID)-1);
+        snprintf(k,sizeof(k),"cr_%d_un",i); strncpy(c.userName,p.getString(k).c_str(),sizeof(c.userName)-1);
+        snprintf(k,sizeof(k),"cr_%d_uid",i); c.userIDLen=p.getBytes(k,c.userID,32);
+        c.isValid=true; out.push_back(c);
+    }
+    p.end(); return !out.empty();
+}
 
-        if (storedLen == (size_t)credIDLen && memcmp(storedID, credID, credIDLen) == 0) {
-            snprintf(key, sizeof(key), "cr_%d_rp", i);
-            prefs.getBytes(key, out.rpIDHash, 32);
-
-            snprintf(key, sizeof(key), "cr_%d_pk", i);
-            prefs.getBytes(key, out.privateKey, 32);
-
-            snprintf(key, sizeof(key), "cr_%d_pub", i);
-            prefs.getBytes(key, out.publicKey, 64);
-
-            snprintf(key, sizeof(key), "cr_%d_rps", i);
-            String rp = prefs.getString(key);
-            strncpy(out.rpID, rp.c_str(), sizeof(out.rpID) - 1);
-
-            snprintf(key, sizeof(key), "cr_%d_un", i);
-            String un = prefs.getString(key);
-            strncpy(out.userName, un.c_str(), sizeof(out.userName) - 1);
-
-            snprintf(key, sizeof(key), "cr_%d_uid", i);
-            out.userIDLen = prefs.getBytes(key, out.userID, 32);
-
-            memcpy(out.credentialID, credID, credIDLen);
-            out.isValid = true;
-
-            prefs.end();
-            return true;
+bool FIDO2Manager::findCredential(const uint8_t *rpIDHash, const uint8_t *credID, uint16_t credIDLen, FIDO2Credential &out){
+    std::vector<FIDO2Credential> list;
+    findCredentialsByRP(rpIDHash,list);
+    for(auto &c:list){
+        if(memcmp(c.credentialID,credID,min((size_t)credIDLen,(size_t)32))==0){
+            out=c; return true;
         }
     }
-
-    prefs.end();
     return false;
-}
-
-bool FIDO2Manager::findCredentialsByRP(const uint8_t *rpIDHash, std::vector<FIDO2Credential> &out) {
-    Preferences prefs;
-    prefs.begin(FIDO_NS, true);
-
-    for (int i = 0; i < _credentialCount; i++) {
-        char key[32];
-        snprintf(key, sizeof(key), "cr_%d_valid", i);
-        if (!prefs.getBool(key, false)) continue;
-
-        snprintf(key, sizeof(key), "cr_%d_rp", i);
-        uint8_t storedRP[32];
-        prefs.getBytes(key, storedRP, 32);
-
-        if (memcmp(storedRP, rpIDHash, 32) != 0) continue;
-
-        FIDO2Credential cred;
-        memset(&cred, 0, sizeof(cred));
-        memcpy(cred.rpIDHash, storedRP, 32);
-
-        snprintf(key, sizeof(key), "cr_%d_id", i);
-        prefs.getBytes(key, cred.credentialID, 32);
-
-        snprintf(key, sizeof(key), "cr_%d_pk", i);
-        prefs.getBytes(key, cred.privateKey, 32);
-
-        snprintf(key, sizeof(key), "cr_%d_pub", i);
-        prefs.getBytes(key, cred.publicKey, 64);
-
-        snprintf(key, sizeof(key), "cr_%d_rps", i);
-        String rp = prefs.getString(key);
-        strncpy(cred.rpID, rp.c_str(), sizeof(cred.rpID) - 1);
-
-        snprintf(key, sizeof(key), "cr_%d_un", i);
-        String un = prefs.getString(key);
-        strncpy(cred.userName, un.c_str(), sizeof(cred.userName) - 1);
-
-        snprintf(key, sizeof(key), "cr_%d_uid", i);
-        cred.userIDLen = prefs.getBytes(key, cred.userID, 32);
-
-        cred.isValid = true;
-        out.push_back(cred);
-    }
-
-    prefs.end();
-    return !out.empty();
-}
-
-int FIDO2Manager::loadAllCredentials(std::vector<FIDO2Credential> &out) {
-    Preferences prefs;
-    prefs.begin(FIDO_NS, true);
-    int count = 0;
-
-    for (int i = 0; i < _credentialCount; i++) {
-        char key[32];
-        snprintf(key, sizeof(key), "cr_%d_valid", i);
-        if (!prefs.getBool(key, false)) continue;
-
-        FIDO2Credential cred;
-        memset(&cred, 0, sizeof(cred));
-
-        snprintf(key, sizeof(key), "cr_%d_id", i);
-        prefs.getBytes(key, cred.credentialID, 32);
-        snprintf(key, sizeof(key), "cr_%d_pk", i);
-        prefs.getBytes(key, cred.privateKey, 32);
-        snprintf(key, sizeof(key), "cr_%d_pub", i);
-        prefs.getBytes(key, cred.publicKey, 64);
-        snprintf(key, sizeof(key), "cr_%d_rp", i);
-        prefs.getBytes(key, cred.rpIDHash, 32);
-        snprintf(key, sizeof(key), "cr_%d_rps", i);
-        String rp = prefs.getString(key);
-        strncpy(cred.rpID, rp.c_str(), sizeof(cred.rpID) - 1);
-        snprintf(key, sizeof(key), "cr_%d_un", i);
-        String un = prefs.getString(key);
-        strncpy(cred.userName, un.c_str(), sizeof(cred.userName) - 1);
-        snprintf(key, sizeof(key), "cr_%d_uid", i);
-        cred.userIDLen = prefs.getBytes(key, cred.userID, 32);
-        cred.isValid = true;
-        out.push_back(cred);
-        count++;
-    }
-
-    prefs.end();
-    return count;
 }

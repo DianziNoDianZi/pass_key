@@ -66,16 +66,16 @@ struct FIDO2Config {
 
 // 凭证存储结构
 struct FIDO2Credential {
-    uint8_t credentialID[64];    // 凭证 ID (SHA256 hash of public key)
-    uint8_t privateKey[32];      // ECDSA P-256 私钥
-    uint8_t publicKey[64];       // ECDSA P-256 公钥 (X || Y)
-    uint8_t rpIDHash[32];        // RP ID SHA256 hash
-    char rpID[128];              // 依赖方 ID (例如 "webauthn.io")
-    char userName[128];          // 用户名
-    uint8_t userID[32];          // 用户 ID
-    uint8_t userIDLen;           // 用户 ID 长度
-    uint16_t rpIDHashLen_full;   // 实际上总是 32
-    bool isValid;                // 是否有效
+    uint8_t credentialID[32];       // 凭证 ID (SHA256 hash of public key)
+    uint8_t keyDER[256];            // DER-encoded EC private key (PKCS#8)
+    uint16_t keyDERLen;             // DER 内容长度
+    uint8_t publicKey[64];          // ECDSA P-256 公钥 (X || Y)
+    uint8_t rpIDHash[32];           // RP ID SHA256 hash
+    char rpID[128];                 // 依赖方 ID
+    char userName[128];             // 用户名
+    uint8_t userID[32];             // 用户 ID
+    uint8_t userIDLen;
+    bool isValid;
 };
 
 // 认证器数据（authenticatorData）
@@ -177,11 +177,10 @@ private:
     bool skipCBORValue(const uint8_t *data, size_t len, size_t &offset);
 
     // 构建认证器数据
-    size_t buildAuthDataMakeCred(const uint8_t *rpIDHash, const uint8_t *credID, uint16_t credIDLen,
-                                  const uint8_t *pubKeyX, const uint8_t *pubKeyY,
-                                  uint8_t *out, size_t outLen);
-    size_t buildAuthDataGetAssert(const uint8_t *rpIDHash, uint8_t *out, size_t outLen);
-    size_t encodeCredentialPublicKey(uint8_t *buf, size_t bufSize, const uint8_t *pubKeyX, const uint8_t *pubKeyY);
+    size_t buildAuthData(const uint8_t *rpIDHash, const uint8_t *credID, uint16_t credIDLen,
+                          const uint8_t *pubKeyX, const uint8_t *pubKeyY,
+                          uint8_t *out, size_t outLen);
+    size_t encodeCOSEKey(uint8_t *buf, size_t bufSize, const uint8_t *x, const uint8_t *y);
 
     // 凭证存储
     bool storeCredential(const FIDO2Credential &cred);

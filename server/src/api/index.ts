@@ -2,6 +2,8 @@ import { Router } from 'express';
 import deviceRouter from './device';
 import authRouter from './auth';
 import smsRouter from './sms';
+import totpRouter from './totp';
+import configRouter from './config';
 import { getDatabase } from '../db/database';
 
 const router = Router();
@@ -14,6 +16,12 @@ router.use('/auth', authRouter);
 
 // SMS forwarding
 router.use('/sms', smsRouter);
+
+// TOTP account management
+router.use('/totp', totpRouter);
+
+// Device configuration
+router.use('/config', configRouter);
 
 // List all devices (separate from /auth/devices)
 router.get('/devices', (_req, res) => {

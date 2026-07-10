@@ -61,6 +61,18 @@ public:
     void resetIdleTimer();
 
     /**
+     * @brief 设置待机超时时间
+     * @param seconds 秒数
+     */
+    void setStandbyTimeout(uint32_t seconds);
+
+    /**
+     * @brief 设置深度睡眠超时时间
+     * @param seconds 秒数
+     */
+    void setDeepSleepTimeout(uint32_t seconds);
+
+    /**
      * @brief 每帧调用，检查空闲时间并自动切换状态
      */
     void update();
@@ -70,9 +82,9 @@ private:
     uint32_t    lastActivityTime;   // 最后一次活动时间戳 (ms)
     bool        initialized;
 
-    // 超时配置
-    static const uint32_t STANDBY_TIMEOUT_MS    = 30000;   // 30秒无操作→待机
-    static const uint32_t DEEP_SLEEP_TIMEOUT_MS = 300000;  // 5分钟无操作→深度睡眠
+    // 超时配置（可通过 MQTT 远程修改）
+    uint32_t standbyTimeoutMs;      // 待机超时 (ms)
+    uint32_t deepSleepTimeoutMs;    // 深度睡眠超时 (ms)
 
     /**
      * @brief 配置 TFT 背光 PWM（5000Hz，8位分辨率）

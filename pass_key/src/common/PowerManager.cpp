@@ -16,6 +16,8 @@ PowerManager::PowerManager()
     : currentState(POWER_ACTIVE)
     , lastActivityTime(0)
     , initialized(false)
+    , standbyTimeoutMs(30000)      // 默认 30 秒
+    , deepSleepTimeoutMs(300000)   // 默认 5 分钟
 {
 }
 
@@ -142,15 +144,15 @@ void PowerManager::update()
 
     switch (currentState) {
         case POWER_ACTIVE:
-            // 30 秒无操作 → 待机模式
-            if (idleMs >= STANDBY_TIMEOUT_MS) {
+            // 无操作 → 待机模式
+            if (idleMs >= standbyTimeoutMs) {
                 setStandby();
             }
             break;
 
         case POWER_STANDBY:
-            // 待机持续 5 分钟无操作 → 深度睡眠
-            if (idleMs >= DEEP_SLEEP_TIMEOUT_MS) {
+            // 待机持续无操作 → 深度睡眠
+            if (idleMs >= deepSleepTimeoutMs) {
                 goToDeepSleep();   // 不会返回
             }
             break;
@@ -172,4 +174,20 @@ void PowerManager::setupBacklightPWM()
 void PowerManager::setBacklightBrightness(uint8_t brightness)
 {
     ledcWrite(0, brightness);
+}
+
+void PowerManager::setStandbyTimeout(uint32_t seconds)
+{
+    if (seconds < 5) seconds = 5;       // 最少 5 秒
+    if (seconds > 600) seconds = 600;   // 最多 10 分钟
+    standbyTimeoutMs = seconds * 1000;
+    Serial.printf("[PM] 待机超时已设置为 %u 秒\n", seconds);
+}
+
+void PowerManager::setDeepSleepTimeout(uint32_t seconds)
+{
+    if (seconds < 60) seconds = 60;       // 最少 1 分钟
+    if (seconds > 3600) seconds = 3600;   // 最多 1 小时
+    deepSleepTimeoutMs = seconds * 1000;
+    Serial.printf("[PM] 深度睡眠超时已设置为 %u 秒\n", seconds);
 }

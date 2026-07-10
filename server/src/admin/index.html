@@ -7,83 +7,80 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #f0f2f5; color: #333; }
-/* Login */
-.login-screen { position: fixed; top:0; left:0; right:0; bottom:0; background:#1a1a2e; display:flex; align-items:center; justify-content:center; z-index:9999; }
+.login-screen { position:fixed; top:0;left:0;right:0;bottom:0; background:#1a1a2e; display:flex; align-items:center; justify-content:center; z-index:9999; }
 .login-box { background:#fff; border-radius:16px; padding:40px; width:90%; max-width:380px; box-shadow:0 20px 60px rgba(0,0,0,.3); text-align:center; }
 .login-box h1 { font-size:24px; margin-bottom:4px; }
 .login-box h1 span { color:#4fc3f7; }
 .login-box p { color:#888; font-size:14px; margin-bottom:24px; }
-.login-box input { width:100%; padding:12px 16px; border:1px solid #ddd; border-radius:10px; font-size:16px; outline:none; text-align:center; transition:0.2s; }
+.login-box input { width:100%; padding:12px 16px; border:1px solid #ddd; border-radius:10px; font-size:16px; outline:none; text-align:center; }
 .login-box input:focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.1); }
 .login-box .btn { width:100%; margin-top:12px; padding:12px; }
 .login-box .error { color:#ef4444; font-size:13px; margin-top:8px; display:none; }
-/* Nav */
-.nav { background: #1a1a2e; color: #fff; padding: 0 24px; display: flex; align-items: center; height: 56px; gap: 32px; }
-.nav h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.5px; }
-.nav h1 span { color: #4fc3f7; }
-.nav a { color: #99a; text-decoration: none; font-size: 14px; padding: 18px 0; border-bottom: 2px solid transparent; transition: 0.2s; cursor:pointer; }
-.nav a:hover, .nav a.active { color: #fff; border-bottom-color: #4fc3f7; }
-.nav .logout { margin-left:auto; color:#99a; font-size:13px; cursor:pointer; padding:18px 0; }
+.nav { background:#1a1a2e; color:#fff; padding:0 24px; display:flex; align-items:center; height:56px; gap:20px; flex-wrap:wrap; }
+.nav h1 { font-size:18px; font-weight:600; white-space:nowrap; }
+.nav h1 span { color:#4fc3f7; }
+.nav a { color:#99a; text-decoration:none; font-size:13px; padding:18px 0; border-bottom:2px solid transparent; cursor:pointer; white-space:nowrap; }
+.nav a:hover, .nav a.active { color:#fff; border-bottom-color:#4fc3f7; }
+.nav .logout { margin-left:auto; color:#99a; font-size:13px; cursor:pointer; padding:18px 0; white-space:nowrap; }
 .nav .logout:hover { color:#ef4444; }
-/* Layout */
-.container { max-width: 1100px; margin: 0 auto; padding: 24px; display:none; }
+.container { max-width:1100px; margin:0 auto; padding:24px; display:none; }
 .container.show { display:block; }
-/* Stats */
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-.stat-card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-.stat-card .label { font-size: 13px; color: #888; margin-bottom: 4px; }
-.stat-card .value { font-size: 28px; font-weight: 700; }
-.stat-card .value.online { color: #22c55e; }
-.stat-card .value.offline { color: #ef4444; }
-/* Section */
-.section { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 24px; overflow: hidden; }
-.section-header { padding: 16px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
-.section-header h2 { font-size: 16px; font-weight: 600; }
-/* Table */
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 12px 20px; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
-th { font-weight: 600; color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; background: #fafafa; }
-tr:hover td { background: #f8f9ff; }
-td .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
-.badge.pending { background: #fff3cd; color: #856404; }
-.badge.approved { background: #d4edda; color: #155724; }
-.badge.denied { background: #f8d7da; color: #721c24; }
-.badge.timeout { background: #e2e3e5; color: #383d41; }
-/* Buttons */
-.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; border: none; font-size: 14px; cursor: pointer; font-weight: 500; transition: 0.2s; }
-.btn-primary { background: #2563eb; color: #fff; }
-.btn-primary:hover { background: #1d4ed8; }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-/* Modal */
-.modal-overlay { display: none; position: fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,.4); z-index:1000; align-items:center; justify-content:center; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:16px; margin-bottom:24px; }
+.stat-card { background:#fff; border-radius:12px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.stat-card .label { font-size:13px; color:#888; margin-bottom:4px; }
+.stat-card .value { font-size:26px; font-weight:700; }
+.stat-card .value.online { color:#22c55e; }
+.section { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:24px; overflow:hidden; }
+.section-header { padding:14px 20px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
+.section-header h2 { font-size:15px; font-weight:600; }
+table { width:100%; border-collapse:collapse; }
+th, td { text-align:left; padding:10px 16px; font-size:13px; border-bottom:1px solid #f0f0f0; }
+th { font-weight:600; color:#888; font-size:11px; text-transform:uppercase; background:#fafafa; }
+tr:hover td { background:#f8f9ff; }
+td .badge { display:inline-block; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:500; }
+.badge.pending { background:#fff3cd; color:#856404; }
+.badge.approved { background:#d4edda; color:#155724; }
+.badge.denied { background:#f8d7da; color:#721c24; }
+.badge.timeout { background:#e2e3e5; color:#383d41; }
+.btn { display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border-radius:8px; border:none; font-size:13px; cursor:pointer; font-weight:500; transition:.2s; }
+.btn-primary { background:#2563eb; color:#fff; }
+.btn-primary:hover { background:#1d4ed8; }
+.btn-danger { background:#ef4444; color:#fff; }
+.btn-danger:hover { background:#dc2626; }
+.btn-sm { padding:4px 10px; font-size:12px; }
+.btn-outline { background:transparent; border:1px solid #ddd; color:#666; }
+.btn-outline:hover { background:#f5f5f5; }
+.modal-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,.4); z-index:1000; align-items:center; justify-content:center; }
 .modal-overlay.show { display:flex; }
-.modal { background:#fff; border-radius:16px; padding:24px; width:90%; max-width:480px; box-shadow:0 20px 60px rgba(0,0,0,.2); }
-.modal h3 { font-size:18px; margin-bottom:16px; }
-.form-group { margin-bottom:14px; }
-.form-group label { display:block; font-size:13px; color:#666; margin-bottom:4px; font-weight:500; }
-.form-group input { width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px; outline:none; transition:.2s; }
+.modal { background:#fff; border-radius:16px; padding:24px; width:90%; max-width:500px; box-shadow:0 20px 60px rgba(0,0,0,.2); max-height:90vh; overflow-y:auto; }
+.modal h3 { font-size:17px; margin-bottom:16px; }
+.form-group { margin-bottom:12px; }
+.form-group label { display:block; font-size:12px; color:#666; margin-bottom:4px; font-weight:500; }
+.form-group input, .form-group select { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:8px; font-size:13px; outline:none; }
 .form-group input:focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.1); }
-.form-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:20px; }
-/* Tab pages */
+.form-group .hint { font-size:11px; color:#999; margin-top:3px; }
+.form-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
 .page { display:none; }
 .page.active { display:block; }
-/* Status indicators */
 .status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
 .status-dot.green { background:#22c55e; }
 .status-dot.gray { background:#9ca3af; }
-/* Toast */
-.toast { position:fixed; bottom:24px; right:24px; background:#1a1a2e; color:#fff; padding:12px 20px; border-radius:10px; font-size:14px; box-shadow:0 4px 12px rgba(0,0,0,.2); z-index:2000; opacity:0; transform:translateY(10px); transition:.3s; }
+.toast { position:fixed; bottom:24px; right:24px; background:#1a1a2e; color:#fff; padding:12px 20px; border-radius:10px; font-size:13px; box-shadow:0 4px 12px rgba(0,0,0,.2); z-index:2000; opacity:0; transform:translateY(10px); transition:.3s; }
 .toast.show { opacity:1; transform:translateY(0); }
-/* Empty state */
-.empty { text-align:center; padding:48px 20px; color:#999; font-size:14px; }
-.empty .icon { font-size:40px; margin-bottom:8px; }
-/* Responsive */
-@media (max-width:640px) { .nav { padding:0 16px; gap:16px; } .container { padding:16px; } th,td { padding:10px 12px; } }
+.empty { text-align:center; padding:40px 20px; color:#999; font-size:13px; }
+.empty .icon { font-size:36px; margin-bottom:8px; }
+.tab-row { display:flex; gap:0; border-bottom:1px solid #eee; padding:0 16px; }
+.tab-row button { padding:10px 20px; border:none; background:transparent; font-size:13px; cursor:pointer; color:#888; border-bottom:2px solid transparent; }
+.tab-row button.active { color:#2563eb; border-bottom-color:#2563eb; font-weight:600; }
+.tab-content { display:none; padding:16px; }
+.tab-content.active { display:block; }
+.config-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:16px; }
+@media (max-width:640px) { .nav { padding:0 12px; gap:12px; } .nav a { font-size:12px; } .container { padding:12px; } th,td { padding:8px 10px; font-size:12px; } .config-grid { grid-template-columns:1fr; } }
+code { font-size:12px; word-break:break-all; background:#f5f5f5; padding:3px 6px; border-radius:4px; }
 </style>
 </head>
 <body>
 
-<!-- ===== 登录页 ===== -->
 <div class="login-screen" id="login-screen">
   <div class="login-box">
     <h1>Pass<span>Key</span></h1>
@@ -94,37 +91,64 @@ td .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-
   </div>
 </div>
 
-<!-- ===== 导航 ===== -->
 <nav class="nav" id="nav-bar" style="display:none;">
   <h1>Pass<span>Key</span></h1>
-  <a data-page="dashboard" class="active">概览</a>
+  <a data-page="dashboard">概览</a>
   <a data-page="devices">设备</a>
+  <a data-page="totp">TOTP</a>
+  <a data-page="config">配置</a>
   <a data-page="challenges">认证记录</a>
   <div class="logout" onclick="doLogout()">退出</div>
 </nav>
 
 <div class="container" id="container">
-<!-- ===== 概览 ===== -->
+
 <div class="page active" id="page-dashboard">
   <div class="stats">
     <div class="stat-card"><div class="label">设备总数</div><div class="value" id="stat-devices">-</div></div>
     <div class="stat-card"><div class="label">已注册公钥</div><div class="value" id="stat-pubkeys">-</div></div>
+    <div class="stat-card"><div class="label">TOTP 账户</div><div class="value" id="stat-totp">-</div></div>
     <div class="stat-card"><div class="label">今日挑战</div><div class="value" id="stat-today">-</div></div>
-    <div class="stat-card"><div class="label">服务器状态</div><div class="value online" id="stat-status">在线</div></div>
   </div>
   <div class="section">
     <div class="section-header"><h2>最近认证</h2></div>
     <div id="recent-challenges"><div class="empty"><div class="icon">📋</div>暂无认证记录</div></div>
   </div>
 </div>
-<!-- ===== 设备 ===== -->
+
 <div class="page" id="page-devices">
   <div class="section">
-    <div class="section-header"><h2>设备列表</h2><button class="btn btn-primary btn-sm" onclick="showRegisterModal()">+ 注册设备</button></div>
+    <div class="section-header"><h2>设备列表</h2><button class="btn btn-primary btn-sm" onclick="showRegisterModal()">+ 注册</button></div>
     <div id="device-list"><div class="empty"><div class="icon">📱</div>暂无设备</div></div>
   </div>
 </div>
-<!-- ===== 认证记录 ===== -->
+
+<div class="page" id="page-totp">
+  <div class="section">
+    <div class="section-header">
+      <h2>TOTP 账户管理</h2>
+      <div>
+        <select id="totp-device-select" onchange="loadTotpAccounts()" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-right:8px;"></select>
+        <button class="btn btn-primary btn-sm" onclick="showAddTotpModal()">+ 添加</button>
+        <button class="btn btn-sm btn-outline" onclick="syncTotpToDevice()" style="margin-left:4px;">📤 同步到设备</button>
+      </div>
+    </div>
+    <div id="totp-account-list"><div class="empty"><div class="icon">🔑</div>请先选择一个设备</div></div>
+  </div>
+</div>
+
+<div class="page" id="page-config">
+  <div class="section">
+    <div class="section-header">
+      <h2>设备配置</h2>
+      <select id="config-device-select" onchange="loadDeviceConfig()" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></select>
+    </div>
+    <div class="config-grid" id="config-form">
+      <p style="color:#999;grid-column:1/-1;text-align:center;padding:40px 0;">请选择设备</p>
+    </div>
+  </div>
+</div>
+
 <div class="page" id="page-challenges">
   <div class="section">
     <div class="section-header"><h2>认证挑战记录</h2></div>
@@ -133,17 +157,43 @@ td .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-
 </div>
 </div>
 
-<!-- ===== 注册弹窗 ===== -->
+<!-- Register modal -->
 <div class="modal-overlay" id="register-modal">
   <div class="modal">
     <h3>注册新设备</h3>
     <div class="form-group"><label>设备 ID</label><input id="reg-deviceId" placeholder="例如: pass_key_001"></div>
     <div class="form-group"><label>设备名称（可选）</label><input id="reg-name" placeholder="例如: 我的PassKey"></div>
     <div class="form-actions">
-      <button class="btn btn-sm" onclick="closeRegisterModal()" style="background:#eee;">取消</button>
+      <button class="btn btn-sm btn-outline" onclick="closeRegisterModal()">取消</button>
       <button class="btn btn-sm btn-primary" onclick="registerDevice()">注册</button>
     </div>
     <div id="reg-result" style="margin-top:12px;padding:12px;background:#f0fdf4;border-radius:8px;display:none;font-size:13px;word-break:break-all;"></div>
+  </div>
+</div>
+
+<!-- Add TOTP modal -->
+<div class="modal-overlay" id="add-totp-modal">
+  <div class="modal">
+    <h3>添加 TOTP 账户</h3>
+    <div class="form-group">
+      <label>导入方式</label>
+      <select id="totp-import-mode" onchange="toggleTotpInputMode()" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+        <option value="manual">手动填写</option>
+        <option value="uri">粘贴 otpauth:// URI</option>
+      </select>
+    </div>
+    <div id="totp-manual-input">
+      <div class="form-group"><label>发行商 (Issuer)</label><input id="totp-issuer" placeholder="例如: Google"></div>
+      <div class="form-group"><label>账户名称</label><input id="totp-account-name" placeholder="例如: user@gmail.com"></div>
+      <div class="form-group"><label>Secret (Base32)</label><input id="totp-secret" placeholder="例如: JBSWY3DPEHPK3PXP"><div class="hint">Base32 编码，不含空格</div></div>
+    </div>
+    <div id="totp-uri-input" style="display:none;">
+      <div class="form-group"><label>otpauth:// URI</label><input id="totp-uri" placeholder="otpauth://totp/..."></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-sm btn-outline" onclick="closeAddTotpModal()">取消</button>
+      <button class="btn btn-sm btn-primary" onclick="addTotpAccount()">添加</button>
+    </div>
   </div>
 </div>
 
@@ -152,195 +202,265 @@ td .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-
 <script>
 const API = '';
 let TOKEN = sessionStorage.getItem('admin_token');
-let toastTimer;
+let toastTimer, devicesCache = [];
 
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('show');
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
-}
+function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),3000); }
 
-// ===== 登录 =====
 function checkAuth() {
-  if (TOKEN) {
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('nav-bar').style.display = 'flex';
-    document.getElementById('container').classList.add('show');
-    loadDashboard();
-    setInterval(loadDashboard, 10000);
-    return true;
-  }
+  if (TOKEN) { document.getElementById('login-screen').style.display='none'; document.getElementById('nav-bar').style.display='flex'; document.getElementById('container').classList.add('show'); loadDashboard(); setInterval(loadDashboard,15000); return true; }
   return false;
 }
 
 async function doLogin() {
-  const pwd = document.getElementById('login-password').value;
-  const err = document.getElementById('login-error');
+  const pwd=document.getElementById('login-password').value, err=document.getElementById('login-error');
   try {
-    const res = await fetch(API + '/admin/login', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ password: pwd })
-    });
-    const data = await res.json();
-    if (res.ok && data.token) {
-      TOKEN = data.token;
-      sessionStorage.setItem('admin_token', TOKEN);
-      err.style.display = 'none';
-      checkAuth();
-    } else {
-      err.textContent = data.error || '密码错误';
-      err.style.display = 'block';
-    }
-  } catch(e) {
-    err.textContent = '网络错误: ' + e.message;
-    err.style.display = 'block';
-  }
+    const res=await fetch(API+'/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})});
+    const data=await res.json();
+    if (res.ok&&data.token) { TOKEN=data.token; sessionStorage.setItem('admin_token',TOKEN); err.style.display='none'; checkAuth(); }
+    else { err.textContent=data.error||'密码错误'; err.style.display='block'; }
+  } catch(e) { err.textContent='网络错误: '+e.message; err.style.display='block'; }
 }
 
-function doLogout() {
-  TOKEN = null;
-  sessionStorage.removeItem('admin_token');
-  document.getElementById('login-screen').style.display = 'flex';
-  document.getElementById('nav-bar').style.display = 'none';
-  document.getElementById('container').classList.remove('show');
-  document.getElementById('login-password').value = '';
-}
+function doLogout() { TOKEN=null; sessionStorage.removeItem('admin_token'); document.getElementById('login-screen').style.display='flex'; document.getElementById('nav-bar').style.display='none'; document.getElementById('container').classList.remove('show'); }
 
-async function authFetch(url, options = {}) {
-  const headers = { ...options.headers, 'Authorization': 'Bearer ' + TOKEN };
-  const res = await fetch(url, { ...options, headers });
-  if (res.status === 401) {
-    doLogout();
-    showToast('登录已过期，请重新登录');
-    throw new Error('unauthorized');
-  }
+async function authFetch(url,opts={}) {
+  const headers={...opts.headers,'Authorization':'Bearer '+TOKEN};
+  const res=await fetch(url,{...opts,headers});
+  if (res.status===401) { doLogout(); showToast('登录已过期'); throw new Error('unauthorized'); }
   return res;
 }
 
-// 导航
-document.querySelectorAll('.nav a[data-page]').forEach(a => {
-  a.addEventListener('click', e => {
+// Navigation
+document.querySelectorAll('.nav a[data-page]').forEach(a=>{
+  a.addEventListener('click',e=>{
     e.preventDefault();
-    document.querySelectorAll('.nav a').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.nav a').forEach(x=>x.classList.remove('active'));
     a.classList.add('active');
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById('page-' + a.dataset.page).classList.add('active');
-    if (a.dataset.page === 'dashboard') loadDashboard();
-    if (a.dataset.page === 'devices') loadDevices();
-    if (a.dataset.page === 'challenges') loadChallenges();
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.getElementById('page-'+a.dataset.page).classList.add('active');
+    const p=a.dataset.page;
+    if (p==='dashboard') loadDashboard();
+    else if (p==='devices') loadDevices();
+    else if (p==='totp') { loadDeviceSelect('totp-device-select'); loadTotpAccounts(); }
+    else if (p==='config') { loadDeviceSelect('config-device-select'); loadDeviceConfig(); }
+    else if (p==='challenges') loadChallenges();
   });
 });
 
-// ===== 概览 =====
+// ===== Load device select =====
+async function loadDeviceSelect(selectId) {
+  try {
+    const res=await authFetch(API+'/admin/data/devices');
+    const data=await res.json();
+    devicesCache=data.devices||[];
+    const sel=document.getElementById(selectId);
+    sel.innerHTML='<option value="">-- 选择设备 --</option>'+devicesCache.map(d=>`<option value="${d.device_id}">${d.name||d.device_id}</option>`).join('');
+  } catch(e){}
+}
+
+// ===== Dashboard =====
 async function loadDashboard() {
   try {
-    const [statRes, chalRes] = await Promise.all([
-      authFetch(API + '/admin/data/stats'),
-      authFetch(API + '/admin/data/challenges?limit=10')
+    const [statRes,chalRes]=await Promise.all([
+      authFetch(API+'/admin/data/stats'),
+      authFetch(API+'/admin/data/challenges?limit=10')
     ]);
-    const stats = await statRes.json();
-    const challenges = await chalRes.json();
+    const stats=await statRes.json();
+    document.getElementById('stat-devices').textContent=stats.devices??'-';
+    document.getElementById('stat-pubkeys').textContent=stats.pubkeys??'-';
+    document.getElementById('stat-today').textContent=stats.todayChallenges??'-';
+    // Load TOTP count from first device
+    try {
+      const devRes=await authFetch(API+'/admin/data/devices');
+      const devs=await devRes.json();
+      const list=devs.devices||[];
+      let totpCount=0;
+      for (const d of list) {
+        const t=await authFetch(API+'/api/totp/'+d.device_id);
+        const td=await t.json();
+        totpCount+=(td.accounts||[]).length;
+      }
+      document.getElementById('stat-totp').textContent=totpCount;
+    } catch(e) { document.getElementById('stat-totp').textContent='-'; }
 
-    document.getElementById('stat-devices').textContent = stats.devices ?? '-';
-    document.getElementById('stat-pubkeys').textContent = stats.pubkeys ?? '-';
-    document.getElementById('stat-today').textContent = stats.todayChallenges ?? '-';
-
-    const chals = challenges.challenges || [];
-    const container = document.getElementById('recent-challenges');
-    if (!chals.length) {
-      container.innerHTML = '<div class="empty"><div class="icon">📋</div>暂无认证记录</div>';
-    } else {
-      container.innerHTML = '<table><thead><tr><th>请求ID</th><th>网站</th><th>设备</th><th>状态</th><th>时间</th></tr></thead><tbody>' +
-        chals.slice(0, 10).map(c => `<tr>
-          <td style="font-family:monospace;font-size:12px;">${(c.request_id||'').slice(0,12)}…</td>
-          <td>${c.website||'-'}</td>
-          <td>${c.device_id||'-'}</td>
-          <td><span class="badge ${c.status||'pending'}">${c.status||'pending'}</span></td>
-          <td style="color:#999;font-size:12px;">${formatTime(c.created_at)}</td>
-        </tr>`).join('') + '</tbody></table>';
-    }
-  } catch (e) { if (e.message !== 'unauthorized') showToast('加载概览失败'); }
+    const chals=(await chalRes.json()).challenges||[];
+    const c=document.getElementById('recent-challenges');
+    if (!chals.length) c.innerHTML='<div class="empty"><div class="icon">📋</div>暂无认证记录</div>';
+    else c.innerHTML='<table><thead><tr><th>请求ID</th><th>网站</th><th>设备</th><th>状态</th><th>时间</th></tr></thead><tbody>'+
+      chals.slice(0,10).map(x=>`<tr><td style="font-family:monospace;font-size:11px;">${(x.request_id||'').slice(0,12)}…</td><td>${x.website||'-'}</td><td>${x.device_id||'-'}</td><td><span class="badge ${x.status||'pending'}">${x.status||'pending'}</span></td><td style="color:#999;font-size:11px;">${formatTime(x.created_at)}</td></tr>`).join('')+'</tbody></table>';
+  } catch(e){}
 }
 
-// ===== 设备 =====
+// ===== Devices =====
 async function loadDevices() {
   try {
-    const res = await authFetch(API + '/admin/data/devices');
-    const data = await res.json();
-    const list = data.devices || [];
-    const container = document.getElementById('device-list');
-    if (!list.length) {
-      container.innerHTML = '<div class="empty"><div class="icon">📱</div>暂无设备</div>';
-    } else {
-      container.innerHTML = '<table><thead><tr><th>设备ID</th><th>名称</th><th>公钥</th><th>注册时间</th></tr></thead><tbody>' +
-        list.map(d => `<tr>
-          <td style="font-family:monospace;font-size:13px;">${d.device_id||'-'}</td>
-          <td>${d.name||'-'}</td>
-          <td>${d.public_key ? '<span class="status-dot green"></span>已注册' : '<span class="status-dot gray"></span>未注册'}</td>
-          <td style="color:#999;font-size:12px;">${formatTime(d.created_at)}</td>
-        </tr>`).join('') + '</tbody></table>';
-    }
-  } catch (e) { if (e.message !== 'unauthorized') showToast('加载设备列表失败'); }
+    const res=await authFetch(API+'/admin/data/devices');
+    const data=await res.json();
+    const list=data.devices||[];
+    const c=document.getElementById('device-list');
+    if (!list.length) c.innerHTML='<div class="empty"><div class="icon">📱</div>暂无设备</div>';
+    else c.innerHTML='<table><thead><tr><th>设备ID</th><th>名称</th><th>公钥</th><th>注册时间</th></tr></thead><tbody>'+
+      list.map(d=>`<tr><td style="font-family:monospace;font-size:12px;">${d.device_id||'-'}</td><td>${d.name||'-'}</td><td>${d.public_key?'<span class="status-dot green"></span>已注册':'<span class="status-dot gray"></span>未注册'}</td><td style="color:#999;font-size:11px;">${formatTime(d.created_at)}</td></tr>`).join('')+'</tbody></table>';
+  } catch(e){}
 }
 
-// ===== 认证记录 =====
+// ===== TOTP =====
+async function loadTotpAccounts() {
+  const deviceId=document.getElementById('totp-device-select').value;
+  const c=document.getElementById('totp-account-list');
+  if (!deviceId) { c.innerHTML='<div class="empty"><div class="icon">🔑</div>请选择设备</div>'; return; }
+  try {
+    const res=await authFetch(API+'/api/totp/'+deviceId);
+    const data=await res.json();
+    const list=data.accounts||[];
+    if (!list.length) c.innerHTML='<div class="empty"><div class="icon">🔑</div>暂无 TOTP 账户，点击右上角添加</div>';
+    else c.innerHTML='<table><thead><tr><th>ID</th><th>发行商</th><th>账户名称</th><th>添加时间</th><th>操作</th></tr></thead><tbody>'+
+      list.map(a=>`<tr><td>${a.id}</td><td>${a.issuer}</td><td>${a.account_name||'-'}</td><td style="color:#999;font-size:11px;">${formatTime(a.created_at)}</td><td><button class="btn btn-sm btn-danger" onclick="deleteTotpAccount(${a.id})">删除</button></td></tr>`).join('')+'</tbody></table>';
+  } catch(e) { c.innerHTML='<div class="empty">加载失败</div>'; }
+}
+
+function showAddTotpModal() {
+  if (!document.getElementById('totp-device-select').value) { showToast('请先选择设备'); return; }
+  document.getElementById('add-totp-modal').classList.add('show');
+  document.getElementById('totp-import-mode').value='manual';
+  toggleTotpInputMode();
+}
+function closeAddTotpModal() { document.getElementById('add-totp-modal').classList.remove('show'); }
+function toggleTotpInputMode() {
+  const mode=document.getElementById('totp-import-mode').value;
+  document.getElementById('totp-manual-input').style.display=mode==='manual'?'block':'none';
+  document.getElementById('totp-uri-input').style.display=mode==='uri'?'block':'none';
+}
+
+async function addTotpAccount() {
+  const deviceId=document.getElementById('totp-device-select').value;
+  const mode=document.getElementById('totp-import-mode').value;
+  let body;
+  if (mode==='uri') {
+    const uri=document.getElementById('totp-uri').value.trim();
+    if (!uri) { showToast('请输入 URI'); return; }
+    body=JSON.stringify({uri});
+  } else {
+    const issuer=document.getElementById('totp-issuer').value.trim();
+    const accountName=document.getElementById('totp-account-name').value.trim();
+    const secret=document.getElementById('totp-secret').value.trim();
+    if (!issuer||!secret) { showToast('发行商和 Secret 不能为空'); return; }
+    body=JSON.stringify({issuer,account_name:accountName,secret});
+  }
+  try {
+    const res=await fetch(API+'/api/totp/'+deviceId,{method:'POST',headers:{'Content-Type':'application/json'},body});
+    const data=await res.json();
+    if (res.ok) { showToast('添加成功'); closeAddTotpModal(); loadTotpAccounts(); }
+    else showToast('添加失败: '+(data.error||''));
+  } catch(e) { showToast('添加失败: '+e.message); }
+}
+
+async function deleteTotpAccount(accountId) {
+  if (!confirm('确定删除这个 TOTP 账户？')) return;
+  const deviceId=document.getElementById('totp-device-select').value;
+  try {
+    const res=await fetch(API+'/api/totp/'+deviceId+'/'+accountId,{method:'DELETE'});
+    if (res.ok) { showToast('已删除'); loadTotpAccounts(); }
+    else showToast('删除失败');
+  } catch(e) { showToast('删除失败: '+e.message); }
+}
+
+async function syncTotpToDevice() {
+  const deviceId=document.getElementById('totp-device-select').value;
+  if (!deviceId) { showToast('请先选择设备'); return; }
+  try {
+    const res=await fetch(API+'/api/totp/'+deviceId+'/sync',{method:'POST'});
+    if (res.ok) {
+      showToast('✅ TOTP 数据已推送到设备（设备需在线接收）');
+    } else showToast('同步失败');
+  } catch(e) { showToast('同步失败: '+e.message); }
+}
+
+// ===== Config =====
+async function loadDeviceConfig() {
+  const deviceId=document.getElementById('config-device-select').value;
+  const form=document.getElementById('config-form');
+  if (!deviceId) { form.innerHTML='<p style="color:#999;grid-column:1/-1;text-align:center;padding:40px 0;">请选择设备</p>'; return; }
+  try {
+    const res=await authFetch(API+'/admin/data/devices');
+    const devs=await res.json();
+    const device=devs.devices.find(d=>d.device_id===deviceId);
+    
+    const cfgRes=await fetch(API+'/api/config/'+deviceId);
+    const cfg=await cfgRes.json();
+    
+    form.innerHTML=`
+      <div class="form-group"><label>设备名称</label><input id="cfg-name" value="${device?.name||''}" disabled style="background:#f5f5f5;"></div>
+      <div class="form-group"><label>待机超时（秒）</label><input id="cfg-standby" type="number" min="5" max="600" value="${cfg.standbyTimeout||30}"><div class="hint">范围 5-600 秒</div></div>
+      <div class="form-group"><label>深度睡眠超时（秒）</label><input id="cfg-sleep" type="number" min="60" max="3600" value="${cfg.deepSleepTimeout||300}"><div class="hint">范围 60-3600 秒</div></div>
+      <div class="form-group"><label>震动</label><select id="cfg-vibration"><option value="1" ${cfg.vibrationEnabled?'selected':''}>开启</option><option value="0" ${!cfg.vibrationEnabled?'selected':''}>关闭</option></select></div>
+      <div class="form-group"><label>屏幕亮度 (0-255)</label><input id="cfg-brightness" type="number" min="0" max="255" value="${cfg.screenBrightness||255}"></div>
+      <div style="grid-column:1/-1;text-align:right;padding-top:8px;"><button class="btn btn-primary" onclick="saveDeviceConfig()">保存配置</button><button class="btn btn-sm btn-outline" onclick="pushConfigToDevice()" style="margin-left:8px;">📤 推送到设备</button></div>
+    `;
+  } catch(e) { form.innerHTML='<p style="color:#ef4444;grid-column:1/-1;text-align:center;">加载失败</p>'; }
+}
+
+async function saveDeviceConfig() {
+  const deviceId=document.getElementById('config-device-select').value;
+  const body={};
+  if (document.getElementById('cfg-standby')) body.standbyTimeout=parseInt(document.getElementById('cfg-standby').value);
+  if (document.getElementById('cfg-sleep')) body.deepSleepTimeout=parseInt(document.getElementById('cfg-sleep').value);
+  if (document.getElementById('cfg-vibration')) body.vibrationEnabled=document.getElementById('cfg-vibration').value==='1';
+  if (document.getElementById('cfg-brightness')) body.screenBrightness=parseInt(document.getElementById('cfg-brightness').value);
+  try {
+    const res=await fetch(API+'/api/config/'+deviceId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if (res.ok) { showToast('配置已保存'); }
+    else { const d=await res.json(); showToast('保存失败: '+(d.error||'')); }
+  } catch(e) { showToast('保存失败: '+e.message); }
+}
+
+async function pushConfigToDevice() {
+  const deviceId=document.getElementById('config-device-select').value;
+  await saveDeviceConfig();
+  try {
+    const res=await fetch(API+'/api/config/'+deviceId+'/push',{method:'POST'});
+    if (res.ok) showToast('✅ 配置已推送到设备');
+    else showToast('推送失败');
+  } catch(e) { showToast('推送失败: '+e.message); }
+}
+
+// ===== Challenges =====
 async function loadChallenges() {
   try {
-    const res = await authFetch(API + '/admin/data/challenges?limit=50');
-    const data = await res.json();
-    const list = data.challenges || [];
-    const container = document.getElementById('challenge-list');
-    if (!list.length) {
-      container.innerHTML = '<div class="empty"><div class="icon">🔐</div>暂无记录</div>';
-    } else {
-      container.innerHTML = '<table><thead><tr><th>请求ID</th><th>设备</th><th>网站</th><th>来源</th><th>状态</th><th>创建时间</th></tr></thead><tbody>' +
-        list.map(c => `<tr>
-          <td style="font-family:monospace;font-size:12px;">${(c.request_id||'').slice(0,12)}…</td>
-          <td style="font-family:monospace;font-size:13px;">${c.device_id||'-'}</td>
-          <td>${c.website||'-'}</td>
-          <td>${c.source||'-'}</td>
-          <td><span class="badge ${c.status||'pending'}">${c.status||'pending'}</span></td>
-          <td style="color:#999;font-size:12px;">${formatTime(c.created_at)}</td>
-        </tr>`).join('') + '</tbody></table>';
-    }
-  } catch (e) { if (e.message !== 'unauthorized') showToast('加载认证记录失败'); }
+    const res=await authFetch(API+'/admin/data/challenges?limit=50');
+    const data=await res.json();
+    const list=data.challenges||[];
+    const c=document.getElementById('challenge-list');
+    if (!list.length) c.innerHTML='<div class="empty"><div class="icon">🔐</div>暂无记录</div>';
+    else c.innerHTML='<table><thead><tr><th>请求ID</th><th>设备</th><th>网站</th><th>来源</th><th>状态</th><th>创建时间</th></tr></thead><tbody>'+
+      list.map(x=>`<tr><td style="font-family:monospace;font-size:11px;">${(x.request_id||'').slice(0,12)}…</td><td style="font-family:monospace;font-size:12px;">${x.device_id||'-'}</td><td>${x.website||'-'}</td><td>${x.source||'-'}</td><td><span class="badge ${x.status||'pending'}">${x.status||'pending'}</span></td><td style="color:#999;font-size:11px;">${formatTime(x.created_at)}</td></tr>`).join('')+'</tbody></table>';
+  } catch(e){}
 }
 
-// ===== 注册设备 =====
-function showRegisterModal() { document.getElementById('register-modal').classList.add('show'); document.getElementById('reg-result').style.display = 'none'; }
+// ===== Register =====
+function showRegisterModal() { document.getElementById('register-modal').classList.add('show'); document.getElementById('reg-result').style.display='none'; }
 function closeRegisterModal() { document.getElementById('register-modal').classList.remove('show'); }
-
 async function registerDevice() {
-  const deviceId = document.getElementById('reg-deviceId').value.trim();
-  const name = document.getElementById('reg-name').value.trim();
+  const deviceId=document.getElementById('reg-deviceId').value.trim();
+  const name=document.getElementById('reg-name').value.trim();
   if (!deviceId) { showToast('请输入设备ID'); return; }
   try {
-    const res = await fetch(API + '/api/device/register', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ deviceId, name })
-    });
-    const data = await res.json();
+    const res=await fetch(API+'/api/device/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deviceId,name})});
+    const data=await res.json();
     if (res.ok) {
-      document.getElementById('reg-result').style.display = 'block';
-      document.getElementById('reg-result').innerHTML =
-        '<strong>✅ 注册成功</strong><br><br>' +
-        '<b>设备ID:</b> ' + data.deviceId + '<br>' +
-        '<b>PSK 密钥:</b><br><code style="font-size:12px;word-break:break-all;background:#f5f5f5;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:4px;">' + data.psk + '</code><br><br>' +
-        '<span style="color:#666;">请将此密钥填入设备 config.h 的 MQTT_PASSWORD</span>';
+      document.getElementById('reg-result').style.display='block';
+      document.getElementById('reg-result').innerHTML='<strong>✅ 注册成功</strong><br><br><b>设备ID:</b> '+data.deviceId+'<br><b>PSK:</b><br><code>'+data.psk+'</code><br><br><span style="color:#666;">填入设备 config.h 的 MQTT_PASSWORD</span>';
       loadDevices(); loadDashboard();
-    } else {
-      showToast('注册失败: ' + (data.error || '未知错误'));
-    }
-  } catch (e) { showToast('注册失败: ' + e.message); }
+    } else showToast('注册失败: '+(data.error||''));
+  } catch(e) { showToast('注册失败: '+e.message); }
 }
 
 function formatTime(t) {
   if (!t) return '-';
-  try { return new Date(t).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+  try { return new Date(t).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
   catch(e) { return t; }
 }
 
-// 初始化
 checkAuth();
 </script>
 </body>

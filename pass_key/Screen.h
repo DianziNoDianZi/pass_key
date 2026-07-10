@@ -35,6 +35,12 @@ public:
     virtual void onUpdate() {}
 
     /**
+     * @brief 接收事件通知（如账户变更、配置更新等）
+     * @param event 事件名称字符串
+     */
+    virtual void onEvent(const char *event) {}
+
+    /**
      * @brief 绘制屏幕内容
      * @param tft TFT 显示驱动引用
      */

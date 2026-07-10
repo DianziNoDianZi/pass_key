@@ -48,6 +48,23 @@ public:
     bool removeAccount(const char *name);
 
     /**
+     * @brief 清空所有账户（用于远程同步）
+     */
+    void clearAllAccounts();
+
+    /**
+     * @brief 从服务器同步数据替换全部账户
+     * @param jsonArray JSON 数组字符串: [{"issuer":"...","accountName":"...","secret":"..."}]
+     * @return 成功同步的账户数
+     */
+    int syncFromServer(const char *jsonArray);
+
+    /**
+     * @brief 检查是否存在同名账户
+     */
+    bool hasAccount(const char *name) const;
+
+    /**
      * @brief 获取已注册的账户数量
      */
     int getAccountCount();

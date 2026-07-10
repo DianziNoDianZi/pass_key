@@ -13,6 +13,9 @@
 #include <cstring>
 #include <cstdio>
 
+// ArduinoJson
+#include <ArduinoJson.h>
+
 // mbedTLS 头文件（ESP32-S3 内置）
 #include <mbedtls/md.h>
 #include <mbedtls/gcm.h>
@@ -127,6 +130,59 @@ bool TOTPManager::removeAccount(const char *name)
         }
     }
     return false;
+}
+
+void TOTPManager::clearAllAccounts()
+{
+    accounts.clear();
+    saveAccounts();
+    Serial.println("[TOTP] 已清空所有账户");
+}
+
+bool TOTPManager::hasAccount(const char *name) const
+{
+    if (!name) return false;
+    for (const auto &acc : accounts) {
+        if (acc.name.equalsIgnoreCase(name)) return true;
+    }
+    return false;
+}
+
+int TOTPManager::syncFromServer(const char *jsonArray)
+{
+    if (!jsonArray) return 0;
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, jsonArray);
+    if (error) {
+        Serial.printf("[TOTP] 同步数据 JSON 解析失败: %s\n", error.c_str());
+        return 0;
+    }
+
+    JsonArray arr = doc.as<JsonArray>();
+    if (arr.isNull()) return 0;
+
+    accounts.clear();
+
+    for (JsonObject obj : arr) {
+        const char *issuer = obj["issuer"].as<const char *>();
+        const char *accountName = obj["accountName"].as<const char *>();
+        const char *secret = obj["secret"].as<const char *>();
+
+        if (!issuer || !secret) continue;
+
+        // Use accountName if available, otherwise use issuer
+        const char *name = (accountName && strlen(accountName) > 0) ? accountName : issuer;
+
+        Account acc;
+        acc.name = String(name);
+        acc.base32Secret = String(secret);
+        accounts.push_back(acc);
+    }
+
+    saveAccounts();
+    Serial.printf("[TOTP] 从服务器同步了 %d 个账户\n", accounts.size());
+    return accounts.size();
 }
 
 int TOTPManager::getAccountCount()

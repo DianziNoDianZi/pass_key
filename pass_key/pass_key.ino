@@ -272,6 +272,81 @@ void setup()
             Serial.printf("[MQTT] sms_forward: sender=%s type=%s code=%s recognized=%d\n",
                           senderVal, codeTypeVal, codeVal, recognizedVal);
         }
+        // ===== TOTP 远程管理 =====
+        else if (strcmp(type, "totp_sync") == 0) {
+            // 全量同步：替换所有账户
+            JsonArray accounts = doc["accounts"].as<JsonArray>();
+            if (!accounts.isNull()) {
+                // 序列化为 JSON 字符串传入 syncFromServer
+                String jsonStr;
+                serializeJson(accounts, jsonStr);
+                int count = totpManager.syncFromServer(jsonStr.c_str());
+                Serial.printf("[MQTT] TOTP 全量同步完成: %d 个账户\n", count);
+
+                // 通知屏幕刷新
+                displayManager.notifyEvent("totp_accounts_changed");
+
+                // 发送确认
+                String resp;
+                JsonDocument respDoc;
+                respDoc["type"] = "totp_sync_ack";
+                respDoc["status"] = "ok";
+                respDoc["accountCount"] = count;
+                respDoc["timestamp"] = millis();
+                serializeJson(respDoc, resp);
+                mqttManager.publish(("passkey/" + String(MQTT_DEVICE_ID) + "/resp").c_str(), resp.c_str());
+            }
+        } else if (strcmp(type, "totp_add") == 0) {
+            // 添加单个账户
+            JsonObject account = doc["account"].as<JsonObject>();
+            if (!account.isNull()) {
+                const char *issuer = account["issuer"].as<const char *>();
+                const char *accountName = account["accountName"].as<const char *>();
+                const char *secret = account["secret"].as<const char *>();
+                const char *name = (accountName && strlen(accountName) > 0) ? accountName : issuer;
+                if (issuer && secret) {
+                    bool ok = totpManager.addAccount(name, secret);
+                    Serial.printf("[MQTT] TOTP 添加账户 '%s': %s\n", name, ok ? "成功" : "失败（可能已存在）");
+                    if (ok) displayManager.notifyEvent("totp_accounts_changed");
+                }
+            }
+        } else if (strcmp(type, "totp_delete") == 0) {
+            // 删除账户（通过 accountName）
+            const char *accountName = doc["accountName"].as<const char *>();
+            if (accountName) {
+                bool ok = totpManager.removeAccount(accountName);
+                Serial.printf("[MQTT] TOTP 删除账户 '%s': %s\n", accountName, ok ? "成功" : "未找到");
+                if (ok) displayManager.notifyEvent("totp_accounts_changed");
+            }
+        }
+        // ===== 远程配置更新 =====
+        else if (strcmp(type, "config_update") == 0) {
+            JsonObject cfg = doc["config"].as<JsonObject>();
+            if (!cfg.isNull()) {
+                if (cfg["standbyTimeout"].is<int>()) {
+                    powerManager.setStandbyTimeout(cfg["standbyTimeout"].as<int>());
+                }
+                if (cfg["deepSleepTimeout"].is<int>()) {
+                    powerManager.setDeepSleepTimeout(cfg["deepSleepTimeout"].as<int>());
+                }
+                if (cfg["vibrationEnabled"].is<bool>()) {
+                    // Vibration control - handled at notification level
+                }
+                if (cfg["screenBrightness"].is<int>()) {
+                    powerManager.setBacklightBrightness(cfg["screenBrightness"].as<int>());
+                }
+                Serial.println("[MQTT] 配置已更新");
+
+                // 发送确认
+                String resp;
+                JsonDocument respDoc;
+                respDoc["type"] = "config_update_ack";
+                respDoc["status"] = "ok";
+                respDoc["timestamp"] = millis();
+                serializeJson(respDoc, resp);
+                mqttManager.publish(("passkey/" + String(MQTT_DEVICE_ID) + "/resp").c_str(), resp.c_str());
+            }
+        }
     });
 
     Serial.println(F("=== PassKey 初始化完成 ==="));

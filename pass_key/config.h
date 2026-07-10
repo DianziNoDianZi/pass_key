@@ -38,12 +38,12 @@
 #define VIBRATOR    GPIO_NUM_8
 
 // ==================== MQTT 配置 ====================
-#define MQTT_BROKER_ADDR     "mqtt.example.com"
+#define MQTT_BROKER_ADDR     "154.40.45.21"
 #define MQTT_BROKER_PORT     1883
 #define MQTT_BROKER_PORT_SSL 8883     // MQTTS 默认端口
-#define MQTT_DEVICE_ID       "pass_key_001"
-#define MQTT_USERNAME        "user"
-#define MQTT_PASSWORD        "password"
+#define MQTT_DEVICE_ID       "pass_key_test"
+#define MQTT_USERNAME        "pass_key_test"
+#define MQTT_PASSWORD        "9138d3fb7e06f6d582780a59f71d14e1d78048e57c7c72200b3cc8b8a9a00e8f"
 #define MQTT_KEEPALIVE       60
 
 // ==================== Air780ep 4G 模块配置 ====================

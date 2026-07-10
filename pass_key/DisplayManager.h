@@ -71,6 +71,12 @@ public:
     void clear();
 
     /**
+     * @brief 向所有活跃屏幕发送事件通知
+     * @param event 事件名称
+     */
+    void notifyEvent(const char *event);
+
+    /**
      * @brief 获取当前显示的屏幕指针
      */
     Screen *getCurrentScreen();

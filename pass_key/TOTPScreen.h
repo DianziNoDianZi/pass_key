@@ -30,6 +30,17 @@ public:
     virtual void onUpdate() override;
     virtual void onDraw(TFT_eSPI &tft) override;
 
+    /**
+     * @brief 事件通知："totp_accounts_changed" 时触发重绘
+     */
+    virtual void onEvent(const char *event) override;
+
+    /**
+     * @brief 通知账户列表已变更（由 MQTT 同步触发）
+     * 下次 update 时自动重绘并修正 selectedIndex
+     */
+    void notifyAccountsChanged();
+
 private:
     // ==================== 视图状态 ====================
     enum ViewState {
@@ -45,6 +56,8 @@ private:
     String     currentCode;      // 当前显示的验证码
 
     DisplayManager *displayMgr;
+
+    bool       accountsDirty;    // 账户列表已变更，需要重绘
 
     // ==================== 布局常量 ====================
     static const int STATUS_HEIGHT = 16;

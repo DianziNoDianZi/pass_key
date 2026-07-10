@@ -21,6 +21,7 @@ TOTPScreen::TOTPScreen(DisplayManager *displayMgr)
     , codeDirty(true)
     , lastCodeTime(0xFFFFFFFF)
     , displayMgr(displayMgr)
+    , accountsDirty(false)
 {
 }
 
@@ -75,9 +76,43 @@ void TOTPScreen::onButtonPress(uint8_t button)
     }
 }
 
+void TOTPScreen::notifyAccountsChanged()
+{
+    accountsDirty = true;
+}
+
+void TOTPScreen::onEvent(const char *event)
+{
+    if (strcmp(event, "totp_accounts_changed") == 0) {
+        accountsDirty = true;
+    }
+}
+
 void TOTPScreen::onUpdate()
 {
     uint32_t now = millis();
+
+    // 账户列表已变更：修正 selectedIndex 并重绘
+    if (accountsDirty) {
+        accountsDirty = false;
+        int count = totpManager.getAccountCount();
+        if (selectedIndex >= count) {
+            selectedIndex = count > 0 ? count - 1 : 0;
+        }
+        codeDirty = true;
+        lastActivityTime = now;
+        if (displayMgr) {
+            displayMgr->clear();
+            displayMgr->getTFT().fillScreen(TFT_BLACK);
+            if (currentState == STATE_LIST) {
+                drawListView(displayMgr->getTFT());
+            } else {
+                drawCodeView(displayMgr->getTFT());
+            }
+            displayMgr->showStatusBar();
+        }
+        return;
+    }
 
     if (currentState == STATE_LIST) {
         // 列表视图超时自动返回主菜单（使用安全弹出）

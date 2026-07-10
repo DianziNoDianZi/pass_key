@@ -1,7 +1,8 @@
 import { AedesPublishPacket, Client } from 'aedes';
 import { broker } from './broker';
-import { AuthResponseMessage, MqttMessage } from './types';
+import { AuthResponseMessage, MqttMessage, TotpSyncResponse, ConfigUpdateResponse } from './types';
 import { getDatabase } from '../db/database';
+import { publishToDevice } from './broker';
 
 export function setupMessageHandler(): void {
   // Subscribe to all device response topics using internal handler
@@ -10,11 +11,17 @@ export function setupMessageHandler(): void {
       const payload = packet.payload.toString();
       const message: MqttMessage = JSON.parse(payload);
 
-      console.log(`[MQTT Handler] Received message on ${packet.topic}:`, message.type);
+      console.log(`[MQTT Handler] Received message on ${packet.topic}:`, (message as any).type);
 
       switch (message.type) {
         case 'auth_response':
           handleAuthResponse(message as AuthResponseMessage);
+          break;
+        case 'totp_sync_ack':
+          handleTotpSyncAck(message as TotpSyncResponse);
+          break;
+        case 'config_update_ack':
+          handleConfigUpdateAck(message as ConfigUpdateResponse);
           break;
         default:
           console.log(`[MQTT Handler] Unknown message type: ${(message as any).type}`);
@@ -39,11 +46,17 @@ export function setupMessageHandler(): void {
       const payload = packet.payload.toString();
       const message: MqttMessage = JSON.parse(payload);
 
-      console.log(`[MQTT Handler] Received message from ${client.id} on ${topic}:`, message.type);
+      console.log(`[MQTT Handler] Received message from ${client.id} on ${topic}:`, (message as any).type);
 
       switch (message.type) {
         case 'auth_response':
           handleAuthResponse(message as AuthResponseMessage);
+          break;
+        case 'totp_sync_ack':
+          handleTotpSyncAck(message as TotpSyncResponse);
+          break;
+        case 'config_update_ack':
+          handleConfigUpdateAck(message as ConfigUpdateResponse);
           break;
         default:
           console.log(`[MQTT Handler] Unknown message type: ${(message as any).type}`);
@@ -83,6 +96,67 @@ async function handleAuthResponse(message: AuthResponseMessage): Promise<void> {
       publicKey: message.publicKey,
     });
   }
+}
+
+function handleTotpSyncAck(message: TotpSyncResponse): void {
+  console.log(`[MQTT Handler] TOTP sync acknowledged: ${message.accountCount} accounts, status: ${message.status}`);
+}
+
+function handleConfigUpdateAck(message: ConfigUpdateResponse): void {
+  console.log(`[MQTT Handler] Config update acknowledged, status: ${message.status}`);
+}
+
+/**
+ * Send TOTP sync to a device
+ */
+export function sendTotpSync(deviceId: string): void {
+  const db = getDatabase();
+  const accounts = db.prepare(
+    'SELECT id, issuer, account_name, encrypted_seed FROM totp_accounts WHERE device_id = ? ORDER BY created_at ASC'
+  ).all(deviceId) as Array<{ id: number; issuer: string; account_name: string | null; encrypted_seed: string }>;
+
+  // Decrypt seeds
+  const key = require('crypto').createHash('sha256').update('passkey-server-totp-key').digest();
+  const decrypted = accounts.map(a => {
+    const parts = a.encrypted_seed.split(':');
+    const iv = Buffer.from(parts[0], 'hex');
+    const encryptedData = parts[1];
+    const decipher = require('crypto').createDecipheriv('aes-256-cbc', key, iv);
+    let secret = decipher.update(encryptedData, 'hex', 'utf8');
+    secret += decipher.final('utf8');
+    return {
+      id: a.id,
+      issuer: a.issuer,
+      accountName: a.account_name || a.issuer,
+      secret,
+    };
+  });
+
+  publishToDevice(deviceId, {
+    type: 'totp_sync',
+    accounts: decrypted,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Send config update to a device
+ */
+export function sendConfigUpdate(deviceId: string): void {
+  const db = getDatabase();
+  const config = db.prepare('SELECT * FROM device_config WHERE device_id = ?').get(deviceId) as any;
+  if (!config) return;
+
+  publishToDevice(deviceId, {
+    type: 'config_update',
+    config: {
+      standbyTimeout: config.standby_timeout,
+      deepSleepTimeout: config.deep_sleep_timeout,
+      vibrationEnabled: config.vibration_enabled === 1,
+      screenBrightness: config.screen_brightness,
+    },
+    timestamp: Date.now(),
+  });
 }
 
 async function notifyCallback(callbackUrl: string, data: Record<string, any>): Promise<void> {

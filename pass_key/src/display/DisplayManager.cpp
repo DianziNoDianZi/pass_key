@@ -155,3 +155,12 @@ void DisplayManager::requestPop()
 {
     pendingPop = true;
 }
+
+void DisplayManager::notifyEvent(const char *event)
+{
+    for (auto *screen : screenStack) {
+        if (screen) {
+            screen->onEvent(event);
+        }
+    }
+}

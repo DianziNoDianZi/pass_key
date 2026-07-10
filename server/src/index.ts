@@ -5,6 +5,7 @@ import { getDatabase } from './db/database';
 import { startBroker, stopBroker } from './mqtt/broker';
 import { setupMessageHandler } from './mqtt/handler';
 import apiRouter from './api/index';
+import adminRouter from './admin/router';
 
 const app = express();
 
@@ -19,6 +20,9 @@ app.get('/health', (_req, res) => {
 
 // API routes
 app.use('/api', apiRouter);
+
+// Admin panel
+app.use('/admin', adminRouter);
 
 async function main(): Promise<void> {
   try {

@@ -22,6 +22,17 @@ router.get('/devices', (_req, res) => {
   res.json({ devices });
 });
 
+// List all challenges
+router.get('/challenges', (req, res) => {
+  const db = getDatabase();
+  const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+  const challenges = db.prepare(`
+    SELECT request_id, device_id, website, source, status, signature, created_at
+    FROM challenges ORDER BY created_at DESC LIMIT ?
+  `).all(limit);
+  res.json({ challenges });
+});
+
 // Weather proxy (placeholder - requires HeFeng API key)
 router.get('/weather/:deviceId', (_req, res) => {
   res.json({ error: 'Weather API key not configured' });

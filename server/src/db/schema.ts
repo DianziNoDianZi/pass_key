@@ -50,8 +50,4 @@ CREATE TABLE IF NOT EXISTS device_config (
 );
 
 CREATE INDEX IF NOT EXISTS idx_totp_device_id ON totp_accounts(device_id);
-
--- Migration: add FIDO2 columns if missing
-ALTER TABLE device_config ADD COLUMN fido2_enabled INTEGER DEFAULT 1;
-ALTER TABLE device_config ADD COLUMN fido2_ble_name TEXT DEFAULT 'PassKey';
 `;

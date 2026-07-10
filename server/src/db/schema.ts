@@ -43,9 +43,15 @@ CREATE TABLE IF NOT EXISTS device_config (
   deep_sleep_timeout INTEGER DEFAULT 300,
   vibration_enabled INTEGER DEFAULT 1,
   screen_brightness INTEGER DEFAULT 255,
+  fido2_enabled INTEGER DEFAULT 1,
+  fido2_ble_name TEXT DEFAULT 'PassKey',
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (device_id) REFERENCES devices(device_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_totp_device_id ON totp_accounts(device_id);
+
+-- Migration: add FIDO2 columns if missing
+ALTER TABLE device_config ADD COLUMN fido2_enabled INTEGER DEFAULT 1;
+ALTER TABLE device_config ADD COLUMN fido2_ble_name TEXT DEFAULT 'PassKey';
 `;

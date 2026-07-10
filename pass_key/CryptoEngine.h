@@ -120,6 +120,11 @@ public:
      */
     bool hasECDSAKey() const { return ecdsaReady; }
 
+    /**
+     * @brief 获取 CTR_DRBG 上下文引用（供 FIDO2Manager 等使用）
+     */
+    mbedtls_ctr_drbg_context &getCTRDRBG() { return ctrDrbg; }
+
 private:
     bool    ready;
     bool    ecdsaReady;

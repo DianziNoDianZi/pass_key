@@ -69,6 +69,8 @@ export interface ConfigUpdateCommand {
     deepSleepTimeout?: number;
     vibrationEnabled?: boolean;
     screenBrightness?: number;
+    fido2Enabled?: boolean;
+    fido2BleName?: string;
   };
   timestamp: number;
 }

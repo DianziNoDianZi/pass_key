@@ -73,6 +73,12 @@ public:
     void setDeepSleepTimeout(uint32_t seconds);
 
     /**
+     * @brief 设置背光亮度
+     * @param brightness 亮度值 0-255
+     */
+    void setBacklightBrightness(uint8_t brightness);
+
+    /**
      * @brief 每帧调用，检查空闲时间并自动切换状态
      */
     void update();
@@ -90,12 +96,6 @@ private:
      * @brief 配置 TFT 背光 PWM（5000Hz，8位分辨率）
      */
     void setupBacklightPWM();
-
-    /**
-     * @brief 设置背光亮度
-     * @param brightness 亮度值 0-255
-     */
-    void setBacklightBrightness(uint8_t brightness);
 };
 
 #endif // POWER_MANAGER_H

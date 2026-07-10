@@ -26,6 +26,8 @@ router.get('/:deviceId', (req: Request, res: Response) => {
     deepSleepTimeout: config.deep_sleep_timeout,
     vibrationEnabled: config.vibration_enabled === 1,
     screenBrightness: config.screen_brightness,
+    fido2Enabled: config.fido2_enabled === 1,
+    fido2BleName: config.fido2_ble_name || 'PassKey',
   });
 });
 
@@ -70,6 +72,18 @@ router.put('/:deviceId', (req: Request, res: Response) => {
     if (val < 0 || val > 255) { res.status(400).json({ error: 'screenBrightness must be 0-255' }); return; }
     updates.push('screen_brightness = ?');
     params.push(val);
+  }
+
+  if (req.body.fido2Enabled !== undefined) {
+    updates.push('fido2_enabled = ?');
+    params.push(req.body.fido2Enabled ? 1 : 0);
+  }
+
+  if (req.body.fido2BleName !== undefined) {
+    const name = String(req.body.fido2BleName).trim();
+    if (name.length < 1 || name.length > 32) { res.status(400).json({ error: 'fido2BleName must be 1-32 characters' }); return; }
+    updates.push('fido2_ble_name = ?');
+    params.push(name);
   }
 
   if (updates.length === 0) {

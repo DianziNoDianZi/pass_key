@@ -395,6 +395,10 @@ async function loadDeviceConfig() {
       <div class="form-group"><label>深度睡眠超时（秒）</label><input id="cfg-sleep" type="number" min="60" max="3600" value="${cfg.deepSleepTimeout||300}"><div class="hint">范围 60-3600 秒</div></div>
       <div class="form-group"><label>震动</label><select id="cfg-vibration"><option value="1" ${cfg.vibrationEnabled?'selected':''}>开启</option><option value="0" ${!cfg.vibrationEnabled?'selected':''}>关闭</option></select></div>
       <div class="form-group"><label>屏幕亮度 (0-255)</label><input id="cfg-brightness" type="number" min="0" max="255" value="${cfg.screenBrightness||255}"></div>
+      <hr style="grid-column:1/-1;border:none;border-top:1px solid #eee;margin:4px 0;">
+      <div class="form-group" style="grid-column:1/-1;font-weight:600;color:#555;font-size:13px;">BLE FIDO2 安全密钥</div>
+      <div class="form-group"><label>FIDO2 功能</label><select id="cfg-fido2"><option value="1" ${cfg.fido2Enabled?'selected':''}>开启</option><option value="0" ${!cfg.fido2Enabled?'selected':''}>关闭</option></select></div>
+      <div class="form-group"><label>BLE 名称</label><input id="cfg-fido2-name" type="text" maxlength="32" value="${cfg.fido2BleName||'PassKey'}"><div class="hint">1-32 字符, 蓝牙广播名称</div></div>
       <div style="grid-column:1/-1;text-align:right;padding-top:8px;"><button class="btn btn-primary" onclick="saveDeviceConfig()">保存配置</button><button class="btn btn-sm btn-outline" onclick="pushConfigToDevice()" style="margin-left:8px;">📤 推送到设备</button></div>
     `;
   } catch(e) { form.innerHTML='<p style="color:#ef4444;grid-column:1/-1;text-align:center;">加载失败</p>'; }
@@ -407,6 +411,8 @@ async function saveDeviceConfig() {
   if (document.getElementById('cfg-sleep')) body.deepSleepTimeout=parseInt(document.getElementById('cfg-sleep').value);
   if (document.getElementById('cfg-vibration')) body.vibrationEnabled=document.getElementById('cfg-vibration').value==='1';
   if (document.getElementById('cfg-brightness')) body.screenBrightness=parseInt(document.getElementById('cfg-brightness').value);
+  if (document.getElementById('cfg-fido2')) body.fido2Enabled=document.getElementById('cfg-fido2').value==='1';
+  if (document.getElementById('cfg-fido2-name')) body.fido2BleName=document.getElementById('cfg-fido2-name').value.trim();
   try {
     const res=await fetch(API+'/api/config/'+deviceId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     if (res.ok) { showToast('配置已保存'); }

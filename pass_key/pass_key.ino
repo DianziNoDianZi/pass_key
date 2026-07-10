@@ -23,6 +23,7 @@
 #include "TOTPManager.h"
 #include "CryptoEngine.h"
 #include "SecureStorage.h"
+#include "FIDO2Manager.h"
 
 #include <ArduinoJson.h>
 
@@ -36,6 +37,7 @@ MQTTManager     mqttManager;
 TOTPManager     totpManager;
 CryptoEngine    cryptoEngine;
 SecureStorage   secureStorage;
+FIDO2Manager    fido2Manager;
 
 // 主菜单屏幕（全局以便回调访问）
 MenuScreen *mainMenu = nullptr;
@@ -87,6 +89,13 @@ void setup()
             Serial.println(F("[ERROR] TOTP 管理器唤醒初始化失败"));
         } else {
             Serial.println(F("[OK] TOTP 管理器唤醒初始化成功"));
+        }
+
+        // 初始化 FIDO2 BLE 安全密钥
+        if (!fido2Manager.init(&cryptoEngine)) {
+            Serial.println(F("[WARN] FIDO2 管理器唤醒初始化失败"));
+        } else {
+            Serial.println(F("[OK] FIDO2 管理器唤醒初始化成功"));
         }
 
         // 重新初始化 MQTT 并重新连接
@@ -146,6 +155,13 @@ void setup()
             Serial.println(F("[OK] 加密引擎初始化成功"));
         }
 
+        // 初始化 FIDO2 BLE 安全密钥
+        if (!fido2Manager.init(&cryptoEngine)) {
+            Serial.println(F("[WARN] FIDO2 管理器初始化失败"));
+        } else {
+            Serial.println(F("[OK] FIDO2 管理器初始化成功"));
+        }
+
         // 初始化安全存储
         if (!secureStorage.init()) {
             Serial.println(F("[ERROR] 安全存储初始化失败"));
@@ -159,6 +175,9 @@ void setup()
         } else {
             Serial.println(F("[OK] TOTP 管理器初始化成功"));
         }
+
+        // 启动 FIDO2 BLE 广播（在加密引擎就绪后）
+        Serial.println(F("[OK] FIDO2 BLE 安全密钥已就绪"));
     }
 
     // ----- 显示初始化（所有启动方式共用） -----
@@ -201,10 +220,13 @@ void setup()
         Serial.printf("[BTN] ShortPress pin=%d -> id=%d\n", pin, id);
     });
 
-    // 长按回调：返回主菜单 + 重置空闲计时器
+    // 长按回调：返回主菜单 + 重置空闲计时器 + FIDO2 用户确认
     buttonManager.addLongPressCallback([](uint8_t pin) {
         if (pin == BTN_CONFIRM) {
             Serial.println(F("[BTN] LongPress CONFIRM -> 返回主菜单"));
+            fido2Manager.confirmUserPresence(true);
+        } else if (pin == BTN_DOWN) {
+            fido2Manager.confirmUserPresence(true);
         }
         powerManager.resetIdleTimer();  // 重置空闲计时器
     });
@@ -335,6 +357,14 @@ void setup()
                 if (cfg["screenBrightness"].is<int>()) {
                     powerManager.setBacklightBrightness(cfg["screenBrightness"].as<int>());
                 }
+                if (cfg["fido2Enabled"].is<bool>()) {
+                    fido2Manager.setEnabled(cfg["fido2Enabled"].as<bool>());
+                }
+                if (cfg["fido2BleName"].is<const char *>()) {
+                    FIDO2Config fc = fido2Manager.getConfig();
+                    strncpy(fc.deviceName, cfg["fido2BleName"].as<const char *>(), sizeof(fc.deviceName) - 1);
+                    fido2Manager.setConfig(fc);
+                }
                 Serial.println("[MQTT] 配置已更新");
 
                 // 发送确认
@@ -350,6 +380,9 @@ void setup()
     });
 
     Serial.println(F("=== PassKey 初始化完成 ==="));
+
+    // 启动 FIDO2 BLE 广播
+    fido2Manager.start();
 }
 
 void loop()
@@ -368,6 +401,9 @@ void loop()
 
     // 电源管理轮询（检查空闲超时，自动切换电源状态）
     powerManager.update();
+
+    // FIDO2 BLE 事件轮询
+    fido2Manager.update();
 
     // 简单延时，避免过度占用 CPU
     delay(10);

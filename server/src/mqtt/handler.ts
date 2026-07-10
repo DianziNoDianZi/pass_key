@@ -154,6 +154,8 @@ export function sendConfigUpdate(deviceId: string): void {
       deepSleepTimeout: config.deep_sleep_timeout,
       vibrationEnabled: config.vibration_enabled === 1,
       screenBrightness: config.screen_brightness,
+      fido2Enabled: config.fido2_enabled === 1,
+      fido2BleName: config.fido2_ble_name || 'PassKey',
     },
     timestamp: Date.now(),
   });

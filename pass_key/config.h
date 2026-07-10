@@ -56,6 +56,11 @@
 #define NTP_TIMEOUT_MS     5000
 #define TZ_OFFSET_SEC      28800   // UTC+8 (北京时间)
 
+// ==================== BLE FIDO2 配置 ====================
+#define FIDO2_BLE_ENABLED   true    // BLE FIDO2 功能开关
+#define FIDO2_BLE_NAME     "PassKey" // BLE 广播名称
+#define FIDO2_CRED_MAX     16      // 最大凭证存储数
+
 // ==================== 其他配置 ====================
 #define SERIAL_BAUD        115200
 #define WIFI_SSID          ""

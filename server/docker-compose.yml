@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # EMQX MQTT Broker (alternative to embedded aedes)
+  emqx:
+    image: emqx/emqx:5.7.1
+    container_name: passkey-emqx
+    restart: unless-stopped
+    ports:
+      - "1883:1883"       # MQTT TCP
+      - "8883:8883"       # MQTT TLS
+      - "8083:8083"       # MQTT WebSocket
+      - "8084:8084"       # MQTT WSS
+      - "18083:18083"     # Dashboard
+    environment:
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: "passkey123"
+      EMQX_AUTH__USER__1__USERNAME: "passkey_server"
+      EMQX_AUTH__USER__1__PASSWORD: "passkey_server_secret"
+    volumes:
+      - emqx-data:/opt/emqx/data
+      - emqx-log:/opt/emqx/log
+
+  # PassKey Server
+  server:
+    build: .
+    container_name: passkey-server
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      HTTP_PORT: "3000"
+      HOST: "0.0.0.0"
+      MQTT_TCP_PORT: "1883"
+      MQTT_WS_PORT: "8883"
+      DB_PATH: "/app/data/passkey.db"
+      WEATHER_API_KEY: "${WEATHER_API_KEY:-}"
+      CHALLENGE_TIMEOUT: "120"
+    volumes:
+      - server-data:/app/data
+    depends_on:
+      - emqx
+
+volumes:
+  emqx-data:
+  emqx-log:
+  server-data:

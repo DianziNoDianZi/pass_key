@@ -1,0 +1,15 @@
+server/node_modules/
+server/dist/
+server/data/
+*.db
+__pycache__/
+.venv/
+*.pyc
+.pio/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

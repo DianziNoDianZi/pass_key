@@ -16,4 +16,7 @@ export const config = {
 
   // Challenge timeout (seconds)
   challengeTimeout: parseInt(process.env.CHALLENGE_TIMEOUT || '120', 10),
+
+  // Admin panel password (set via env ADMIN_PASSWORD)
+  adminPassword: process.env.ADMIN_PASSWORD || 'passkey123',
 };

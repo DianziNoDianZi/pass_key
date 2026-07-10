@@ -13,7 +13,7 @@
 #include "MenuScreen.h"
 #include "AuthScreen.h"
 #include "ProgressBar.h"
-#include "SMSNotificationScreen.h"
+
 #include "TOTPScreen.h"
 #include "ButtonManager.h"
 #include "PowerManager.h"
@@ -273,26 +273,6 @@ void setup()
                 String(challenge), expiresAt
             );
             displayManager.pushScreen(authScreen);
-        } else if (strcmp(type, "sms_forward") == 0) {
-            const char *senderVal   = doc["sender"].as<const char *>();
-            const char *codeTypeVal = doc["code_type"].as<const char *>();
-            const char *codeVal     = doc["code"].as<const char *>();
-            bool recognizedVal      = doc["recognized"] | false;
-
-            if (!senderVal)   senderVal   = "";
-            if (!codeTypeVal) codeTypeVal = "";
-            if (!codeVal)     codeVal     = "";
-
-            SMSNotificationScreen *smsScreen = new SMSNotificationScreen(
-                &displayManager,
-                String(senderVal),
-                String(codeTypeVal),
-                String(codeVal),
-                recognizedVal
-            );
-            displayManager.pushScreen(smsScreen);
-            Serial.printf("[MQTT] sms_forward: sender=%s type=%s code=%s recognized=%d\n",
-                          senderVal, codeTypeVal, codeVal, recognizedVal);
         }
         // ===== TOTP 远程管理 =====
         else if (strcmp(type, "totp_sync") == 0) {

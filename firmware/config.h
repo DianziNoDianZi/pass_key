@@ -41,9 +41,9 @@
 #define MQTT_BROKER_ADDR     "mqtt.example.com"
 #define MQTT_BROKER_PORT     1883
 #define MQTT_BROKER_PORT_SSL 8883     // MQTTS 默认端口
-#define MQTT_DEVICE_ID       "pass_key_001"
-#define MQTT_USERNAME        "user"
-#define MQTT_PASSWORD        "password"
+#define MQTT_DEVICE_ID       "pass_key_test"
+#define MQTT_USERNAME        "pass_key_test"
+#define MQTT_PASSWORD        "c6b92b9b2ddf41ad4caa97610837ee9edb819e4c3d50e3d1ef8ad78b429c72de"
 #define MQTT_KEEPALIVE       60
 
 // ==================== Air780ep 4G 模块配置 ====================

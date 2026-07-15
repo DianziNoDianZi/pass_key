@@ -19,7 +19,7 @@
 #define TFT_HEIGHT 240
 
 // ========== ESP32-S3 引脚（SPI 直连） ==========
-#define TFT_MISO  -1   // ST7789 没有 MISO
+#define TFT_MISO  21   // ST7789 没有 MISO，但 ESP32 SPI 需要一个有效引脚
 #define TFT_MOSI  13
 #define TFT_SCLK  7
 #define TFT_CS    10

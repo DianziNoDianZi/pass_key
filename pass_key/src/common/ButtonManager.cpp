@@ -6,8 +6,6 @@
 #include "ButtonManager.h"
 #include "config.h"
 
-#include <driver/gpio.h>
-
 ButtonManager::ButtonManager()
     : userCallback(nullptr)
     , longPressThreshold(1000) // 默认长按阈值 1 秒
@@ -24,20 +22,7 @@ ButtonManager::~ButtonManager()
 bool ButtonManager::init()
 {
     for (int i = 0; i < 3; i++) {
-        int pin = buttons[i].pin;
-
-        // 基础 GPIO 配置：上拉输入
-        pinMode(pin, INPUT_PULLUP);
-
-        // 使用 ESP-IDF GPIO 硬件毛刺过滤器，直接滤除 RF 噪声
-        gpio_glitch_filter_handle_t filter;
-        gpio_pin_glitch_filter_config_t filter_cfg = {
-            .clk_src = GLITCH_FILTER_CLK_SRC_DEFAULT,
-            .gpio_num = (gpio_num_t)pin,
-        };
-        gpio_new_pin_glitch_filter(&filter_cfg, &filter);
-        gpio_glitch_filter_enable(filter);
-
+        pinMode(buttons[i].pin, INPUT_PULLUP);
         buttons[i].lastState        = HIGH;
         buttons[i].currentState     = HIGH;
         buttons[i].stableState      = HIGH;
@@ -84,8 +69,19 @@ void ButtonManager::processButton(ButtonId btn)
 {
     ButtonState &bs = buttons[btn];
 
-    // 单次读取当前电平
-    bs.currentState = digitalRead(bs.pin);
+    // 抗 RF 噪声：快速采样 5 次取多数值
+    // 4G 射频是周期性脉冲，多采样可滤除瞬时错误电平
+    int highCount = 0;
+    int lowCount = 0;
+    for (int i = 0; i < 5; i++) {
+        if (digitalRead(bs.pin) == HIGH) {
+            highCount++;
+        } else {
+            lowCount++;
+        }
+        delayMicroseconds(500); // 每次间隔 500μs
+    }
+    bs.currentState = (highCount > lowCount) ? HIGH : LOW;
 
     // 去抖逻辑（50ms 消抖延时）
     if (bs.currentState != bs.lastState) {

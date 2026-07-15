@@ -7,9 +7,6 @@
  * 本文件为程序入口，负责初始化各模块并进入主循环。
  */
 
-// TFT 配置必须在任何 TFT_eSPI 包含之前定义
-#include "User_Setup.h"
-
 #include "config.h"
 #include "DisplayManager.h"
 #include "Screen.h"

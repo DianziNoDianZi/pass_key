@@ -48,3 +48,5 @@
 
 // ==================== NTP 配置 ====================
 #define NTP_SERVER1        "pool.ntp.org"
+
+#endif // CONFIG_H

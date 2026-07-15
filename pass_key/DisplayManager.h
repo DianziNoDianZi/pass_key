@@ -95,6 +95,7 @@ private:
     TFT_eSPI              tft;
     std::vector<Screen *> screenStack;
     bool                  pendingPop;
+    uint32_t              lastStatusBarRefresh;
 };
 
 #endif // DISPLAY_MANAGER_H

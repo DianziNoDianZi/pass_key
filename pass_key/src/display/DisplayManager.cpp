@@ -4,9 +4,16 @@
  */
 
 #include "DisplayManager.h"
+#include "TimeManager.h"
+#include "MQTTManager.h"
+
+// ==================== 外部全局实例 ====================
+extern TimeManager   timeManager;
+extern MQTTManager   mqttManager;
 
 DisplayManager::DisplayManager()
     : pendingPop(false)
+    , lastStatusBarRefresh(0)
 {
 }
 
@@ -98,6 +105,13 @@ void DisplayManager::update()
     if (pendingPop && !screenStack.empty()) {
         popScreen();
     }
+
+    // 每 2 秒刷新状态栏（更新时间、连接状态）
+    uint32_t now = millis();
+    if (now - lastStatusBarRefresh > 2000) {
+        lastStatusBarRefresh = now;
+        showStatusBar();
+    }
 }
 
 void DisplayManager::handleButtonPress(uint8_t button)
@@ -122,17 +136,36 @@ void DisplayManager::showStatusBar()
     tft.setCursor(2, 4);
     tft.print("W");
 
-    // 4G 连接状态图标（占位符）
+    // 4G 连接状态：MQTT 已连接显示 "C"，否则显示 "4"
     tft.setCursor(14, 4);
-    tft.print("4");
+    if (mqttManager.isConnected()) {
+        tft.setTextColor(TFT_GREEN, PASSKEY_DARK);
+        tft.print("C");
+        tft.setTextColor(PASSKEY_WHITE, PASSKEY_DARK);
+    } else {
+        tft.setTextColor(TFT_RED, PASSKEY_DARK);
+        tft.print("4");
+        tft.setTextColor(PASSKEY_WHITE, PASSKEY_DARK);
+    }
 
     // 电池图标（占位符，暂无实际电量数据）
     tft.setCursor(26, 4);
-    tft.print((char)3); // 使用 TFT_eSPI 内置字符代替电池图标
+    tft.print((char)3);
 
-    // 当前时间（占位符）
-    tft.setCursor(TFT_WIDTH - 46, 4);
-    tft.print("12:00");
+    // 当前真实时间
+    time_t now = timeManager.getUnixTime();
+    if (now > 100000) {
+        // 时间已同步
+        struct tm *ti = localtime(&now);
+        char timeStr[6];
+        snprintf(timeStr, sizeof(timeStr), "%02d:%02d", ti->tm_hour, ti->tm_min);
+        tft.setCursor(TFT_WIDTH - 46, 4);
+        tft.print(timeStr);
+    } else {
+        // 时间未同步
+        tft.setCursor(TFT_WIDTH - 46, 4);
+        tft.print("--:--");
+    }
 }
 
 void DisplayManager::clear()

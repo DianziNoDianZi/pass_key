@@ -30,7 +30,8 @@
 #define UART_BAUD   115200
 
 // ==================== 蜂鸣器 & 震动马达 ====================
-#define BUZZER      GPIO_NUM_7
+// 注：BUZZER 使用 GPIO 2，TFT_SCLK 使用 GPIO 7，避免冲突
+#define BUZZER      GPIO_NUM_2
 #define VIBRATOR    GPIO_NUM_8
 
 // ==================== MQTT 配置 ====================

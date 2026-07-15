@@ -130,6 +130,7 @@ void TOTPScreen::onUpdate()
             lastActivityTime = now;
             // 重绘列表
             if (displayMgr) {
+                // 安全弹出：先清除内容，再重绘列表
                 displayMgr->clear();
                 displayMgr->getTFT().fillScreen(TFT_BLACK);
                 drawListView(displayMgr->getTFT());

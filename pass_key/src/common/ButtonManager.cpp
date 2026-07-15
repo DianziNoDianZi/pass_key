@@ -68,7 +68,13 @@ void ButtonManager::clearPressCallbacks()
 void ButtonManager::processButton(ButtonId btn)
 {
     ButtonState &bs = buttons[btn];
-    bs.currentState = digitalRead(bs.pin);
+
+    // 连续采样 5 次，取多数值（抗 Air780ep 电气噪声）
+    int sum = 0;
+    for (int i = 0; i < 5; i++) {
+        sum += digitalRead(bs.pin);
+    }
+    bs.currentState = (sum >= 3) ? HIGH : LOW;
 
     // 去抖逻辑（50ms 消抖延时）
     if (bs.currentState != bs.lastState) {

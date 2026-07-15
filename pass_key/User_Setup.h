@@ -4,8 +4,10 @@
  *
  * 本文件配置 TFT_eSPI 库驱动 ST7789 控制器，
  * 分辨率 240x240，使用 SPI 接口。
- * 引脚定义需与 config.h 中的引脚保持一致。
  */
+
+// 阻止 TFT_eSPI 库加载默认 User_Setup.h
+#define USER_SETUP_LOADED
 
 #define USER_SETUP_INFO "ST7789 240x240 SPI"
 
@@ -25,7 +27,8 @@
 #define TFT_DC    11
 #define TFT_RST   12
 #define TFT_MOSI  13
-#define TFT_SCLK  14
+#define TFT_SCLK  7
+#define TFT_MISO  21           // 占位引脚（ST7789 无 MISO）
 #define TFT_BL    15           // 背光控制引脚
 
 // ==================== SPI 频率 ====================

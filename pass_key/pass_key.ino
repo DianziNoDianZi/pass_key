@@ -8,7 +8,7 @@
  */
 
 // TFT 配置必须在任何 TFT_eSPI 包含之前定义
-#include "tft_config.h"
+#include "User_Setup.h"
 
 #include "config.h"
 #include "DisplayManager.h"

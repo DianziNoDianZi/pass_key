@@ -16,7 +16,7 @@
 // 由 User_Setup.h（项目根目录）统一管理
 // TFT_BL 在此定义，供 PowerManager.cpp 等非 TFT_eSPI 文件引用
 // 完整引脚定义在库目录 User_Setup.h 中（库的 .cpp 文件编译时需要）
-#define TFT_BL      GPIO_NUM_1
+#define TFT_BL      GPIO_NUM_21
 
 // ==================== 按键 ====================
 #define BTN_UP      GPIO_NUM_6

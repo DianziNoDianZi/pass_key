@@ -11,15 +11,10 @@
 
 #include <Arduino.h>
 
-// ==================== 显示屏 (ST7789, SPI) ====================
-#define TFT_CS      GPIO_NUM_10
-#define TFT_DC      GPIO_NUM_11
-#define TFT_RST     GPIO_NUM_12
-#define TFT_MOSI    GPIO_NUM_13
-#define TFT_SCLK    GPIO_NUM_7
-#define TFT_BL      GPIO_NUM_15
-#define TFT_WIDTH   240
-#define TFT_HEIGHT  240
+// ==================== 显示屏 — 引脚定义在库的 User_Setup.h 中 ====================
+// TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_BL, TFT_WIDTH, TFT_HEIGHT
+// 由 TFT_eSPI 库的 User_Setup.h 统一管理
+// (路径: C:\Users\ASUS\Documents\Arduino\libraries\TFT_eSPI\User_Setup.h)
 
 // ==================== 按键 ====================
 #define BTN_UP      GPIO_NUM_4

@@ -11,10 +11,11 @@
 
 #include <Arduino.h>
 
-// ==================== 显示屏 — 引脚定义在库的 User_Setup.h 中 ====================
-// TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_BL, TFT_WIDTH, TFT_HEIGHT
-// 由 TFT_eSPI 库的 User_Setup.h 统一管理
-// (路径: C:\Users\ASUS\Documents\Arduino\libraries\TFT_eSPI\User_Setup.h)
+// ==================== 显示屏 — 部分引脚由项目目录 User_Setup.h 定义 ====================
+// TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_WIDTH, TFT_HEIGHT
+// 由 User_Setup.h（项目根目录）统一管理
+// TFT_BL 在此定义，供 PowerManager.cpp 等非 TFT_eSPI 文件引用
+#define TFT_BL      GPIO_NUM_15
 
 // ==================== 按键 ====================
 #define BTN_UP      GPIO_NUM_4

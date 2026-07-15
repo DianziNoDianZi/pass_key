@@ -69,14 +69,8 @@ void ButtonManager::processButton(ButtonId btn)
 {
     ButtonState &bs = buttons[btn];
 
-    // 超采样 50 次，噪声情况下也能准确判断（抗 Air780ep 干扰）
-    int sum = 0;
-    for (int i = 0; i < 50; i++) {
-        sum += digitalRead(bs.pin);
-        delayMicroseconds(100); // 每次采样间隔 100μs
-    }
-    // 超过 70% 采样为 HIGH → HIGH，否则 LOW
-    bs.currentState = (sum > 35) ? HIGH : LOW;
+    // 单次读取当前电平
+    bs.currentState = digitalRead(bs.pin);
 
     // 去抖逻辑（50ms 消抖延时）
     if (bs.currentState != bs.lastState) {

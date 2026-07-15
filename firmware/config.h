@@ -16,7 +16,7 @@
 #define TFT_DC      GPIO_NUM_11
 #define TFT_RST     GPIO_NUM_12
 #define TFT_MOSI    GPIO_NUM_13
-#define TFT_SCLK    GPIO_NUM_14
+#define TFT_SCLK    GPIO_NUM_7
 #define TFT_BL      GPIO_NUM_15
 #define TFT_WIDTH   240
 #define TFT_HEIGHT  240

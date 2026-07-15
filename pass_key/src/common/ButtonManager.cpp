@@ -69,12 +69,14 @@ void ButtonManager::processButton(ButtonId btn)
 {
     ButtonState &bs = buttons[btn];
 
-    // 连续采样 5 次，取多数值（抗 Air780ep 电气噪声）
+    // 超采样 50 次，噪声情况下也能准确判断（抗 Air780ep 干扰）
     int sum = 0;
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 50; i++) {
         sum += digitalRead(bs.pin);
+        delayMicroseconds(100); // 每次采样间隔 100μs
     }
-    bs.currentState = (sum >= 3) ? HIGH : LOW;
+    // 超过 70% 采样为 HIGH → HIGH，否则 LOW
+    bs.currentState = (sum > 35) ? HIGH : LOW;
 
     // 去抖逻辑（50ms 消抖延时）
     if (bs.currentState != bs.lastState) {

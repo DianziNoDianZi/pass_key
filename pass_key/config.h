@@ -15,24 +15,24 @@
 // TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_WIDTH, TFT_HEIGHT
 // 由 User_Setup.h（项目根目录）统一管理
 // TFT_BL 在此定义，供 PowerManager.cpp 等非 TFT_eSPI 文件引用
-#define TFT_BL      GPIO_NUM_15
+// 完整引脚定义在库目录 User_Setup.h 中（库的 .cpp 文件编译时需要）
+#define TFT_BL      GPIO_NUM_1
 
 // ==================== 按键 ====================
-#define BTN_UP      GPIO_NUM_4
-#define BTN_DOWN    GPIO_NUM_5
-#define BTN_CONFIRM GPIO_NUM_6
+#define BTN_UP      GPIO_NUM_6
+#define BTN_DOWN    GPIO_NUM_7
+#define BTN_CONFIRM GPIO_NUM_8
 #define BTN_DEBOUNCE_MS  50   // 按键去抖时间 (ms)
 
 // ==================== Air780ep (UART) ====================
 #define UART_TX     GPIO_NUM_17
 #define UART_RX     GPIO_NUM_18
-#define AT_PWRKEY   GPIO_NUM_16
+#define AT_PWRKEY   GPIO_NUM_10
 #define UART_BAUD   115200
 
 // ==================== 蜂鸣器 & 震动马达 ====================
-// 注：BUZZER 使用 GPIO 2，TFT_SCLK 使用 GPIO 7，避免冲突
-#define BUZZER      GPIO_NUM_2
-#define VIBRATOR    GPIO_NUM_8
+#define BUZZER      GPIO_NUM_9
+#define VIBRATOR    GPIO_NUM_14
 
 // ==================== MQTT 配置 ====================
 #define MQTT_BROKER_ADDR     "154.40.45.21"
@@ -48,21 +48,3 @@
 
 // ==================== NTP 配置 ====================
 #define NTP_SERVER1        "pool.ntp.org"
-#define NTP_SERVER2        "time.nist.gov"
-#define NTP_SERVER3        "cn.ntp.org.cn"
-#define NTP_TIMEOUT_MS     5000
-#define TZ_OFFSET_SEC      28800   // UTC+8 (北京时间)
-
-// ==================== BLE FIDO2 配置 ====================
-#define FIDO2_BLE_ENABLED   true    // BLE FIDO2 功能开关
-#define FIDO2_BLE_NAME     "PassKey" // BLE 广播名称
-#define FIDO2_CRED_MAX     16      // 最大凭证存储数
-
-// ==================== 其他配置 ====================
-#define SERIAL_BAUD        115200
-#define WIFI_SSID          ""
-#define WIFI_PASSWORD      ""
-#define TOTP_PERIOD        30      // TOTP 默认周期 (秒)
-#define TOTP_DIGITS        6       // TOTP 默认位数
-
-#endif // CONFIG_H

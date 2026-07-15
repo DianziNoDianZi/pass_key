@@ -21,7 +21,7 @@
 // ==================== 按键 ====================
 #define BTN_UP      GPIO_NUM_6
 #define BTN_DOWN    GPIO_NUM_7
-#define BTN_CONFIRM GPIO_NUM_9
+#define BTN_CONFIRM GPIO_NUM_21
 #define BTN_DEBOUNCE_MS  50   // 按键去抖时间 (ms)
 
 // ==================== Air780ep (UART) ====================

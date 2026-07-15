@@ -67,6 +67,13 @@ public:
     void update();
 
 private:
+    /**
+     * @brief 解析 +CCLK 响应字符串并设置系统时间
+     * @param response AT+CCLK? 的完整原始响应字符串
+     * @return true 解析并设置成功
+     */
+    bool parseAndSetTime(const String &response);
+
     Air780epDriver *driver;         // Air780ep 模块驱动指针
     bool      timeSynced;
     bool      syncFailed;          // 初始同步是否失败

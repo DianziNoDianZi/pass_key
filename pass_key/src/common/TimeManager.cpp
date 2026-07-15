@@ -75,46 +75,58 @@ bool TimeManager::init()
 
 bool TimeManager::syncRTC()
 {
-    if (!driver || !driver->isModuleReady()) {
+    if (!driver) {
         return false;
     }
 
-    // 发送 AT+CCLK? 查询模块 RTC 时间，收集完整响应
+    if (driver->isModuleReady()) {
+        // 模块就绪，正常发送 AT+CCLK? 查询模块 RTC 时间
+        String collected;
+        if (driver->sendCommand("AT+CCLK?", "+CCLK:", 5000, &collected)) {
+            return parseAndSetTime(collected);
+        }
+        return false;
+    }
+
+    // 模块未就绪，尝试直接发送 AT+CCLK?（不检查 moduleReady 标志）
+    // 这适用于模块已供电但初始化阶段未完全通过 isModuleReady 的情况
     String collected;
-    if (!driver->sendCommand("AT+CCLK?", "+CCLK:", 5000, &collected)) {
-        Serial.println(F("[Time] AT+CCLK? 无响应"));
-        return false;
+    if (driver->sendCommand("AT+CCLK?", "+CCLK:", 5000, &collected)) {
+        return parseAndSetTime(collected);
     }
 
+    return false;
+}
+
+// ==================== 解析 +CCLK 响应 ====================
+
+bool TimeManager::parseAndSetTime(const String &response)
+{
     // 解析 +CCLK: "yy/MM/dd,hh:mm:ss±zz"
     // 找到引号内的内容
-    int quote1 = collected.indexOf('"');
-    int quote2 = collected.indexOf('"', quote1 + 1);
+    int quote1 = response.indexOf('"');
+    int quote2 = response.indexOf('"', quote1 + 1);
     if (quote1 < 0 || quote2 < 0) {
         Serial.println(F("[Time] CCLK 格式错误（无引号）"));
         return false;
     }
 
-    String timeStr = collected.substring(quote1 + 1, quote2);
-    // timeStr 格式: yy/MM/dd,hh:mm:ss±zz
-
+    String timeStr = response.substring(quote1 + 1, quote2);
     if (timeStr.length() < 17) {
         Serial.printf("[Time] CCLK 格式错误（长度不足）: %s\n", timeStr.c_str());
         return false;
     }
 
-    // 解析各字段
-    const char *p = timeStr.c_str();
+    // 解析各时间分量
+    int year   = 2000 + (timeStr[0] - '0') * 10 + (timeStr[1] - '0');
+    int month  = (timeStr[3] - '0') * 10 + (timeStr[4] - '0');
+    int day    = (timeStr[6] - '0') * 10 + (timeStr[7] - '0');
+    int hour   = (timeStr[9] - '0') * 10 + (timeStr[10] - '0');
+    int minute = (timeStr[12] - '0') * 10 + (timeStr[13] - '0');
+    int second = (timeStr[15] - '0') * 10 + (timeStr[16] - '0');
 
-    int year   = 2000 + bcdToUint8(p + 0);  // yy -> 20yy
-    int month  = bcdToUint8(p + 3);          // MM
-    int day    = bcdToUint8(p + 6);          // dd
-    int hour   = bcdToUint8(p + 9);          // hh
-    int minute = bcdToUint8(p + 12);         // mm
-    int second = bcdToUint8(p + 15);         // ss
-
-    // 检查有效性
-    if (year < 2024 || year > 2099 ||
+    // 简单有效性检查
+    if (year < 2023 || year > 2100 ||
         month < 1 || month > 12 ||
         day < 1 || day > 31 ||
         hour > 23 || minute > 59 || second > 59) {
@@ -136,16 +148,13 @@ bool TimeManager::syncRTC()
     time_t epoch = mktime(&tmVal);
 
     // 应用时区偏移（config.h 中 TZ_OFFSET_SEC = 28800 = UTC+8）
-    // AT+CCLK? 返回的是模块的本地时间（已含时区偏移），
-    // 所以转换为 UTC 存储到 ESP32 系统时间
     epoch -= TZ_OFFSET_SEC;
 
     // 设置 ESP32 系统时间
     struct timeval tv = {};
     tv.tv_sec = epoch;
     tv.tv_usec = 0;
-    if (settimeofday(&tv, nullptr) != 0) {
-        Serial.println(F("[Time] settimeofday 失败"));
+    if (settimeofday(&tv, NULL) != 0) {
         return false;
     }
 
@@ -215,11 +224,6 @@ void TimeManager::update()
     // 检查重试间隔
     unsigned long now = millis();
     if (now - lastRetryTime < RETRY_INTERVAL_MS) {
-        return;
-    }
-
-    // 检查模块是否就绪
-    if (!driver || !driver->isModuleReady()) {
         return;
     }
 

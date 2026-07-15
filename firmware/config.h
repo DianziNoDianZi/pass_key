@@ -22,9 +22,9 @@
 #define TFT_HEIGHT  240
 
 // ==================== 按键 ====================
-#define BTN_UP      GPIO_NUM_4
-#define BTN_DOWN    GPIO_NUM_5
-#define BTN_CONFIRM GPIO_NUM_6
+#define BTN_UP      GPIO_NUM_6
+#define BTN_DOWN    GPIO_NUM_7
+#define BTN_CONFIRM GPIO_NUM_9
 #define BTN_DEBOUNCE_MS  50   // 按键去抖时间 (ms)
 
 // ==================== Air780ep (UART) ====================
@@ -47,7 +47,7 @@
 #define MQTT_KEEPALIVE       60
 
 // ==================== Air780ep 4G 模块配置 ====================
-#define AIR780EP_APN         "CMNET"   // 中国移动 APN
+#define AIR780EP_APN         "CMIOT"   // 中国移动物联网 APN
 
 // ==================== NTP 配置 ====================
 #define NTP_SERVER1        "pool.ntp.org"

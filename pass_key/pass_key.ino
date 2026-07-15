@@ -183,14 +183,14 @@ void setup()
     // ----- 显示初始化（所有启动方式共用） -----
     // 创建主菜单并压入屏幕栈
     mainMenu = new MenuScreen("PassKey");
-    mainMenu->addItem("TOTP 代码");
-    mainMenu->addItem("账户管理");
-    mainMenu->addItem("系统设置");
-    mainMenu->addItem("关于设备");
-    mainMenu->addItem("数据同步");
-    mainMenu->addItem("安全选项");
-    mainMenu->addItem("网络配置");
-    mainMenu->addItem("日志查看");
+    mainMenu->addItem("TOTP Codes");
+    mainMenu->addItem("Accounts");
+    mainMenu->addItem("Settings");
+    mainMenu->addItem("About");
+    mainMenu->addItem("Sync");
+    mainMenu->addItem("Security");
+    mainMenu->addItem("Network");
+    mainMenu->addItem("Logs");
     displayManager.pushScreen(mainMenu);
 
     // ----- 注册按键回调（所有启动方式共用） -----
@@ -211,7 +211,7 @@ void setup()
         if (id == BTN_ID_CONFIRM && mainMenu &&
             displayManager.getCurrentScreen() == mainMenu) {
             const char *selected = mainMenu->getSelectedItem();
-            if (selected && strcmp(selected, "TOTP 代码") == 0) {
+            if (selected && strcmp(selected, "TOTP Codes") == 0) {
                 TOTPScreen *totpScreen = new TOTPScreen(&displayManager);
                 displayManager.pushScreen(totpScreen);
             }

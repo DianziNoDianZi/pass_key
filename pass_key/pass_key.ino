@@ -7,6 +7,9 @@
  * 本文件为程序入口，负责初始化各模块并进入主循环。
  */
 
+// TFT 配置必须在任何 TFT_eSPI 包含之前定义
+#include "tft_config.h"
+
 #include "config.h"
 #include "DisplayManager.h"
 #include "Screen.h"
@@ -77,7 +80,7 @@ void setup()
             Serial.println(F("[OK] Air780ep 唤醒初始化成功"));
         }
 
-        // 初始化时间管理（通过 Air780ep AT+CCLK 获取 RTC 时间）
+        // 初始化时间管理（通过 Air780ep  AT+CCLK 获取 RTC 时间）
         if (!timeManager.init()) {
             Serial.println(F("[ERROR] 时间管理初始化失败"));
         } else {

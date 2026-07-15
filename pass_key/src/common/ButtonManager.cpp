@@ -6,6 +6,8 @@
 #include "ButtonManager.h"
 #include "config.h"
 
+#include <driver/gpio.h>
+
 ButtonManager::ButtonManager()
     : userCallback(nullptr)
     , longPressThreshold(1000) // 默认长按阈值 1 秒
@@ -22,7 +24,20 @@ ButtonManager::~ButtonManager()
 bool ButtonManager::init()
 {
     for (int i = 0; i < 3; i++) {
-        pinMode(buttons[i].pin, INPUT_PULLUP);
+        int pin = buttons[i].pin;
+
+        // 基础 GPIO 配置：上拉输入
+        pinMode(pin, INPUT_PULLUP);
+
+        // 使用 ESP-IDF GPIO 硬件毛刺过滤器，直接滤除 RF 噪声
+        gpio_glitch_filter_handle_t filter;
+        gpio_pin_glitch_filter_config_t filter_cfg = {
+            .clk_src = GLITCH_FILTER_CLK_SRC_DEFAULT,
+            .gpio_num = (gpio_num_t)pin,
+        };
+        gpio_new_pin_glitch_filter(&filter_cfg, &filter);
+        gpio_glitch_filter_enable(filter);
+
         buttons[i].lastState        = HIGH;
         buttons[i].currentState     = HIGH;
         buttons[i].stableState      = HIGH;

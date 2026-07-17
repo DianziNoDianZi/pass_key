@@ -152,6 +152,9 @@ bool MQTTManager::connect()
         if (subscribe(topicCmd.c_str())) {
             Serial.printf("[MQTT] 已订阅: %s\n", topicCmd.c_str());
         }
+
+        // 注册设备公钥
+        registerDevice();
     } else {
         connected = false;
         Serial.printf(" 失败 (rc=%d)\n", mqttClient->state());

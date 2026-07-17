@@ -22,6 +22,13 @@ const options: AedesOptions = {
 
       if (device && device.psk === psk) {
         callback(null, true);
+      } else if (!device) {
+        // 设备不存在时自动创建（首次连接自动注册）
+        db.prepare('INSERT INTO devices (device_id, name, psk) VALUES (?, ?, ?)').run(deviceId, deviceId, psk);
+        // 同时创建设备配置默认值
+        db.prepare('INSERT OR IGNORE INTO device_config (device_id) VALUES (?)').run(deviceId);
+        console.log(`[MQTT Broker] 设备自动注册: ${deviceId}`);
+        callback(null, true);
       } else {
         const err = new Error('Authentication failed: invalid credentials') as AuthenticateError;
         callback(err, false);

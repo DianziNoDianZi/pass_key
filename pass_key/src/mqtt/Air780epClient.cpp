@@ -71,6 +71,8 @@ int Air780epClient::available()
     if (!_connected) return 0;
     int avail = driver->available();
     if (peekByte >= 0) avail++;
+    // 让出 CPU，让 IDLE0 有运行机会
+    delay(1);
     return avail;
 }
 
@@ -128,6 +130,8 @@ void Air780epClient::stop()
 
 uint8_t Air780epClient::connected()
 {
+    // 让出 CPU，让 IDLE0 有运行机会
+    delay(1);
     if (!_connected) return 0;
     // 通过驱动层检查真实连接状态
     _connected = driver->isConnected();

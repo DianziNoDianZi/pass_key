@@ -42,6 +42,20 @@ FIDO2Manager    fido2Manager;
 // 主菜单屏幕（全局以便回调访问）
 MenuScreen *mainMenu = nullptr;
 
+// ==================== Core 0 MQTT 任务 ====================
+// 将 MQTT 心跳、重连、消息接收放到 Core 0 运行，
+// 避免阻塞 Core 1 的主循环（按键、显示）。
+void mqttCore0Task(void *pvParameters)
+{
+    MQTTManager *mgr = (MQTTManager *)pvParameters;
+    TickType_t lastWake = xTaskGetTickCount();
+
+    while (1) {
+        mgr->loop();  // 心跳 + 重连（内部有 delay 让出 CPU）
+        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(50));  // ~20 Hz
+    }
+}
+
 void setup()
 {
     // 初始化串口调试输出
@@ -148,6 +162,13 @@ void setup()
             Serial.println(F("[OK] MQTT 管理器初始化成功"));
         }
 
+        // 初始化安全存储
+        if (!secureStorage.init()) {
+            Serial.println(F("[ERROR] 安全存储初始化失败"));
+        } else {
+            Serial.println(F("[OK] 安全存储初始化成功"));
+        }
+
         // 初始化加密引擎
         if (!cryptoEngine.init()) {
             Serial.println(F("[ERROR] 加密引擎初始化失败"));
@@ -160,13 +181,6 @@ void setup()
             Serial.println(F("[WARN] FIDO2 管理器初始化失败"));
         } else {
             Serial.println(F("[OK] FIDO2 管理器初始化成功"));
-        }
-
-        // 初始化安全存储
-        if (!secureStorage.init()) {
-            Serial.println(F("[ERROR] 安全存储初始化失败"));
-        } else {
-            Serial.println(F("[OK] 安全存储初始化成功"));
         }
 
         // 初始化 TOTP 管理器
@@ -363,18 +377,35 @@ void setup()
 
     // 启动 FIDO2 BLE 广播
     fido2Manager.start();
+
+    // ---- 启动 Core 0 MQTT 任务 ----
+    // 将 MQTT 心跳/重连剥离到独立核心，主循环不再阻塞
+    xTaskCreatePinnedToCore(
+        mqttCore0Task,      // 任务函数
+        "mqtt_core0",       // 任务名
+        8192,               // 栈大小（字节）
+        &mqttManager,       // 参数（MQTTManager 实例）
+        1,                  // 优先级
+        NULL,               // 任务句柄（不需要）
+        0                   // Core 0
+    );
+    Serial.println(F("[OK] Core 0 MQTT 任务已启动"));
 }
 
 void loop()
 {
+    static unsigned long lastStats = 0;
+    static unsigned long loopCount = 0;
+    loopCount++;
+
     // 轮询按键状态
     buttonManager.update();
 
     // 轮询显示屏更新
     displayManager.update();
 
-    // 轮询 MQTT 消息
-    mqttManager.loop();
+    // 轮询 MQTT 消息（从 Core 0 消息队列读取，非阻塞）
+    mqttManager.processPendingMessages();
 
     // NTP 重试逻辑（首次同步失败时后台重试）
     timeManager.update();
@@ -384,6 +415,13 @@ void loop()
 
     // FIDO2 BLE 事件轮询
     fido2Manager.update();
+
+    // 每秒输出 loop 频率诊断
+    if (millis() - lastStats >= 1000) {
+        Serial.printf("[DIAG] loop 频率: %lu Hz\n", loopCount);
+        loopCount = 0;
+        lastStats = millis();
+    }
 
     // 简单延时，避免过度占用 CPU
     delay(10);

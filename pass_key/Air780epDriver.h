@@ -126,6 +126,13 @@ public:
     bool wakeup();
 
     /**
+     * @brief 硬件复位模块（拉低 PWRKEY 重启）
+     * 当模块长时间无响应或 GPRS 反复失败时调用。
+     * @return true 复位后模块就绪
+     */
+    bool resetModule();
+
+    /**
      * @brief 获取信号强度
      * @param rssi 输出 RSSI 值（0-31, 99=未知）
      * @return true 获取成功
@@ -158,6 +165,8 @@ private:
     int   currentConnectId;   // 当前 TCP/SSL 连接 ID（通常为 0）
     bool  tcpConnected;       // TCP 连接状态
     bool  sslMode;            // 是否 SSL 模式
+    bool  gprsConfigured;      // GPRS 已配置（避免重复配置）
+    bool  cipMode;            // 是否使用 CIPSTART/CIPSEND 模式（回退方案）
 
     // 接收环形缓冲区
     uint8_t rxBuf[AIR780EP_RX_BUF_SIZE];
@@ -206,6 +215,9 @@ private:
      * @return true 匹配成功
      */
     bool waitForResponse(const char *expected, uint32_t timeoutMs, String *collectOut = nullptr);
+
+    // CIP 模式 CLOSED 检测状态机
+    uint8_t closedDetectState;  // 0=待机, 1-7=匹配中
 };
 
 #endif // AIR780EP_DRIVER_H

@@ -23,6 +23,9 @@ export function setupMessageHandler(): void {
         case 'config_update_ack':
           handleConfigUpdateAck(message as ConfigUpdateResponse);
           break;
+        case 'device_register':
+          handleDeviceRegister(topic, message as { publicKey?: string });
+          break;
         default:
           console.log(`[MQTT Handler] Unknown message type: ${(message as any).type}`);
       }
@@ -57,6 +60,9 @@ export function setupMessageHandler(): void {
           break;
         case 'config_update_ack':
           handleConfigUpdateAck(message as ConfigUpdateResponse);
+          break;
+        case 'device_register':
+          handleDeviceRegister(topic, message as { publicKey?: string });
           break;
         default:
           console.log(`[MQTT Handler] Unknown message type: ${(message as any).type}`);
@@ -202,5 +208,34 @@ async function notifyCallback(callbackUrl: string, data: Record<string, any>): P
     }
   } catch (err) {
     console.error(`[MQTT Handler] Failed to notify callback ${callbackUrl}:`, (err as Error).message);
+  }
+}
+
+/**
+ * Handle device registration message from device
+ * A device sends its public key after MQTT connection is established
+ */
+function handleDeviceRegister(topic: string, message: { publicKey?: string }): void {
+  if (!message.publicKey) {
+    console.warn('[MQTT Handler] device_register missing publicKey');
+    return;
+  }
+
+  // Extract deviceId from topic: passkey/{deviceId}/resp
+  const parts = topic.split('/');
+  if (parts.length < 2) return;
+  const deviceId = parts[1];
+
+  const db = getDatabase();
+  const existing = db.prepare('SELECT public_key FROM devices WHERE device_id = ?').get(deviceId) as { public_key: string | null } | undefined;
+
+  if (existing && !existing.public_key) {
+    // Only update if no public key is stored yet
+    db.prepare('UPDATE devices SET public_key = ? WHERE device_id = ?').run(message.publicKey, deviceId);
+    console.log(`[MQTT Handler] Device ${deviceId} public key registered`);
+  } else if (existing) {
+    console.log(`[MQTT Handler] Device ${deviceId} already has a public key, skipping update`);
+  } else {
+    console.warn(`[MQTT Handler] Device ${deviceId} not found in database`);
   }
 }

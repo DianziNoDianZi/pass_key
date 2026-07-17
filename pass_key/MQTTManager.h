@@ -9,6 +9,10 @@
  * 主题规则：
  * - 订阅：passkey/{deviceId}/cmd
  * - 发布：passkey/{deviceId}/resp
+ *
+ * 多核设计：
+ * - Core 0: 运行 loop() 处理心跳、重连、消息接收
+ * - Core 1: 调用 processPendingMessages() 处理收到的消息
  */
 
 #ifndef MQTT_MANAGER_H
@@ -28,15 +32,30 @@ typedef std::function<void(const char *topic, const uint8_t *payload, unsigned i
 class MQTTManager
 {
 public:
+    // 跨核消息队列条目（Core 0 MQTT 任务 → Core 1 主循环）
+    struct PendingMsg {
+        char topic[128];
+        uint8_t payload[512];
+        unsigned int length;
+    };
+
+    // 出站消息队列条目（Core 1 回调 → Core 0 MQTT 任务）
+    struct OutgoingMsg {
+        char topic[128];
+        char payload[512];
+        unsigned int length;
+        bool retained;
+    };
+
     MQTTManager();
     ~MQTTManager();
 
     /**
      * @brief 初始化 MQTT 管理器
-     * @param clientId 客户端 ID（默认从 config.h 读取）
-     * @param broker   Broker 地址（默认从 config.h 读取）
-     * @param port     Broker 端口（默认从 config.h 读取）
-     * @param useSSL   是否启用 SSL 连接（默认 false）
+     * @param clientId 客户端 ID
+     * @param broker   Broker 地址
+     * @param port     Broker 端口
+     * @param useSSL   是否启用 SSL
      * @return true 成功
      */
     bool init(const char *clientId = MQTT_DEVICE_ID,
@@ -46,67 +65,64 @@ public:
 
     /**
      * @brief 连接到 MQTT Broker
-     * - 先通过 Air780epDriver 建立 TCP/SSL 连接
-     * - 然后发送 MQTT CONNECT 报文
      * @return true 连接成功
      */
     bool connect();
 
     /**
      * @brief 断开 MQTT 连接
-     * - MQTT DISCONNECT + TCP 断开
      */
     bool disconnect();
 
     /**
      * @brief 检查 MQTT 连接状态
-     * @return true 已连接
      */
     bool isConnected() const;
 
     /**
-     * @brief 发布消息到指定主题
-     * @param topic    主题
-     * @param payload  消息内容
-     * @param retained 是否保留消息（默认 false）
-     * @return true 发布成功
+     * @brief 发布消息
      */
     bool publish(const char *topic, const char *payload, bool retained = false);
 
     /**
-     * @brief 订阅指定主题
-     * @param topic 主题
-     * @return true 订阅成功
+     * @brief 订阅主题
      */
     bool subscribe(const char *topic);
 
     /**
      * @brief 取消订阅
-     * @param topic 主题
-     * @return true 取消成功
      */
     bool unsubscribe(const char *topic);
 
     /**
      * @brief 注册消息到达回调
-     * @param callback 回调函数
      */
     void setMessageCallback(MQTTManagerCallback callback);
 
     /**
      * @brief MQTT 客户端循环处理
-     * - 维持 MQTT 心跳
-     * - 检查接收队列并分发消息
-     * - 自动重连（指数退避：5s → 30s → 1m → 5m）
-     * - 需要在主 loop() 中定期调用
+     * 在 Core 0 的任务中运行。
+     * 处理心跳、消息接收、自动重连。
      */
     void loop();
 
     /**
      * @brief 发送 PINGREQ 保活
-     * @return true 收到 PINGRESP
      */
     bool ping();
+
+    /**
+     * @brief 处理 Core 0 传来的待处理 MQTT 消息
+     * 在 Core 1 的主循环中调用，使用 FreeRTOS 消息队列
+     * 确保跨核安全。
+     */
+    void processPendingMessages();
+
+    /**
+     * @brief 注册设备公钥到服务器
+     * 连接成功后自动调用，发布设备公钥至 passkey/{deviceId}/resp
+     */
+    void registerDevice();
 
 private:
     Air780epClient *tcpClient;
@@ -123,36 +139,36 @@ private:
     bool connected;
     bool initialized;
 
-    // 消息回调
+    // 消息回调（用于 Core 0 的 MQTT 消息 → 用户回调转发）
     MQTTManagerCallback messageCallback;
 
     // 自动重连
     unsigned long lastReconnectAttempt;
-    unsigned long reconnectDelay;     // 当前重连等待间隔
-    int reconnectAttempts;            // 当前重连尝试次数
+    unsigned long reconnectDelay;
+    int reconnectAttempts;
+    int gprsFailCount;          // 连续 GPRS 配置失败次数
 
-    // 主题（使用设备 ID 构建）
-    String topicCmd;    // passkey/{deviceId}/cmd  (订阅)
-    String topicResp;   // passkey/{deviceId}/resp (发布)
+    // 主题
+    String topicCmd;
+    String topicResp;
+
+    // 跨核消息队列
+    QueueHandle_t msgQueue;
+
+    // 出站消息队列（Core 1 → Core 0，发送响应）
+    QueueHandle_t outMsgQueue;
 
     /**
-     * @brief PubSubClient 内部回调转发
-     * @param topic   主题
-     * @param payload 消息内容
-     * @param length  消息长度
+     * @brief 处理出站消息队列（在 Core 0 上调用，通过 mqttClient 实际发送）
+     */
+    void processOutgoing();
+
+    /**
+     * @brief PubSubClient 内部回调（运行在 Core 0）
      */
     static void mqttCallback(char *topic, uint8_t *payload, unsigned int length);
 
-    /**
-     * @brief 执行实际的重连逻辑
-     * @return true 重连成功
-     */
     bool attemptReconnect();
-
-    /**
-     * @brief 计算下一次重连等待时间（指数退避）
-     * @return 等待时间（毫秒）
-     */
     unsigned long getNextReconnectDelay();
 };
 

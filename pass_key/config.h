@@ -47,7 +47,12 @@
 #define AIR780EP_APN         "CMIOT"   // 中国移动物联网 APN
 
 // ==================== 串口配置 ====================
+// ESP32-S3 用 USB CDC（原生 USB 口）时需要勾选 "USB CDC On Boot"
+// 如果用的是 UART 转 USB 芯片（CH340/CP210x）则不需要
 #define SERIAL_BAUD     115200
+
+// 延迟等待 Serial 连接，确保输出完整
+// 如果开启 USB CDC，Serial.begin 不需要指定波特率
 
 // ==================== NTP 配置 ====================
 #define NTP_SERVER1        "pool.ntp.org"

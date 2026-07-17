@@ -16,8 +16,11 @@ Air780epDriver::Air780epDriver()
     , currentConnectId(0)
     , tcpConnected(false)
     , sslMode(false)
+    , gprsConfigured(false)
+    , cipMode(false)
     , rxHead(0)
     , rxTail(0)
+    , closedDetectState(0)
 {
 }
 
@@ -143,6 +146,7 @@ bool Air780epDriver::waitForResponse(const char *expected, uint32_t timeoutMs, S
     String collected;
 
     while (millis() - start < timeoutMs) {
+
         while (uart->available()) {
             String line = uart->readStringUntil('\n');
             line.trim();
@@ -151,6 +155,26 @@ bool Air780epDriver::waitForResponse(const char *expected, uint32_t timeoutMs, S
             if (line.startsWith("+QIURC:")) {
                 handleURC(line);
                 continue;
+            }
+
+            // CIP 模式：+IPD 数据直接送入环形缓冲区（避免被 collected 吞掉）
+            if (cipMode && line.startsWith("+IPD,")) {
+                int colon = line.indexOf(':');
+                if (colon > 5) {
+                    int ipdLen = line.substring(5, colon).toInt();
+                    int dataStart = colon + 1;
+                    int lineDataLen = line.length() - dataStart;
+                    for (int i = dataStart; i < (int)line.length() && (i - dataStart) < ipdLen; i++) {
+                        ringPutc((uint8_t)line.charAt(i));
+                    }
+                    int remaining = ipdLen - lineDataLen;
+                    while (remaining > 0 && uart->available()) {
+                        uint8_t c = (uint8_t)uart->read();
+                        ringPutc(c);
+                        remaining--;
+                    }
+                }
+                continue;  // +IPD 行不加入 collected
             }
 
             if (line.length() > 0) {
@@ -251,6 +275,40 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
 {
     if (!uart || !tcpConnected) return false;
 
+    if (cipMode) {
+        // CIP 模式：使用 CIPSEND
+        char cmd[32];
+        snprintf(cmd, sizeof(cmd), "AT+CIPSEND=%u", (unsigned int)len);
+        uart->print(cmd);
+        uart->print("\r\n");
+
+        // 等待 ">" 提示符
+        unsigned long start = millis();
+        bool gotPrompt = false;
+        while (millis() - start < 30000) {
+            if (uart->available()) {
+                char c = uart->read();
+                if (c == '>') {
+                    gotPrompt = true;
+                    break;
+                }
+            }
+            delay(10);
+        }
+        if (!gotPrompt) {
+            Serial.println("[CIPSEND] 未收到 > 提示符");
+            return false;
+        }
+
+        // 发送数据
+        uart->write(data, len);
+        bool sent = waitForResponse("SEND OK", 15000);
+        Serial.printf("[CIPSEND] 发送 %u 字节: %s\n", (unsigned int)len, sent ? "SEND OK" : "失败");
+
+        return sent;
+    }
+
+    // QI 模式：使用 QISEND
     char cmd[64];
     if (sslMode) {
         snprintf(cmd, sizeof(cmd), "AT+QSSLSEND=%d,%u", currentConnectId, (unsigned int)len);
@@ -294,8 +352,9 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
 
 int Air780epDriver::receiveData(uint8_t *buffer, size_t maxLen)
 {
-    // 先检查 UART 中是否有新的 URC 数据
-    if (uart) {
+    // 在 CIP 模式下，+IPD 数据已在 available() 中写入环形缓冲区
+    // QI 模式下，处理 URC 通知
+    if (!cipMode && uart) {
         while (uart->available()) {
             String line = uart->readStringUntil('\n');
             line.trim();
@@ -318,13 +377,50 @@ int Air780epDriver::receiveData(uint8_t *buffer, size_t maxLen)
 
 int Air780epDriver::available()
 {
-    // 检查 UART 中是否有新的 URC
+    // 检查 UART 中是否有新的数据
     if (uart) {
         while (uart->available()) {
-            String line = uart->readStringUntil('\n');
-            line.trim();
-            if (line.startsWith("+QIURC:")) {
-                handleURC(line);
+            if (cipMode) {
+                // CIP 模式：直接读取原始字节到环形缓冲区
+                // Air780ep 不包装 +IPD 前缀，数据直接以原始二进制到达
+                uint8_t c = (uint8_t)uart->read();
+
+                // 状态机检测 "CLOSED\r\n" URC（TCP 断开通知）
+                bool skipByte = false;
+                switch (closedDetectState) {
+                    case 0: if (c == 'C') closedDetectState = 1; break;
+                    case 1: closedDetectState = (c == 'L') ? 2 : 0; break;
+                    case 2: closedDetectState = (c == 'O') ? 3 : 0; break;
+                    case 3: closedDetectState = (c == 'S') ? 4 : 0; break;
+                    case 4: closedDetectState = (c == 'E') ? 5 : 0; break;
+                    case 5: closedDetectState = (c == 'D') ? 6 : 0; break;
+                    case 6: closedDetectState = (c == '\r') ? 7 : 0; break;
+                    case 7:
+                        if (c == '\n') {
+                            tcpConnected = false;
+                            Serial.println("[Air780ep] TCP 连接已关闭");
+                        }
+                        closedDetectState = 0;
+                        skipByte = true;  // 跳过 \n，不写入环形缓冲区
+                        break;
+                }
+
+                if (!skipByte) {
+                    ringPutc(c);
+                }
+            } else {
+                String line = uart->readStringUntil('\n');
+                line.trim();
+                if (line.startsWith("+QIURC:") || line.startsWith("+QURC:")) {
+                    handleURC(line);
+                } else if (line.startsWith("+CGEV:")) {
+                    // 网络事件通知（NW DETACH 等），标记模块状态异常
+                    Serial.printf("[Air780ep] 网络事件: %s\n", line.c_str());
+                    if (line.indexOf("NW DETACH") >= 0 || line.indexOf("ME DETACH") >= 0) {
+                        tcpConnected = false;
+                        moduleReady = false;  // 触发重新初始化
+                    }
+                }
             }
         }
     }
@@ -337,37 +433,120 @@ bool Air780epDriver::configureGPRS(const char *apn)
 {
     if (!moduleReady || !uart) return false;
 
-    char cmd[128];
+    // 如果已经配置过 GPRS，跳过配置
+    if (gprsConfigured) {
+        return true;
+    }
 
-    // 配置 PDP context
+    cipMode = false;
+    flushUART();
+    char cmd[128];
+    String resp;
+
+    // ===== 诊断输出 =====
+    sendCommand("AT+CPIN?", "+CPIN:", 3000, &resp);
+    if (resp.indexOf("READY") >= 0)
+        Serial.println("[Air780ep] SIM 卡: READY");
+    else
+        Serial.printf("[Air780ep] SIM 卡状态: %s\n", resp.c_str());
+
+    resp = "";
+    sendCommand("AT+CSQ", "+CSQ:", 3000, &resp);
+    int comma = resp.indexOf(',');
+    if (comma > 0) {
+        int rssi = resp.substring(resp.indexOf(':') + 1, comma).toInt();
+        Serial.printf("[Air780ep] 信号: CSQ=%d", rssi);
+        if (rssi == 99) Serial.println(" (无信号)");
+        else if (rssi <= 9) Serial.println(" (弱)");
+        else if (rssi <= 20) Serial.println(" (中等)");
+        else Serial.println(" (强)");
+    }
+
+    // ===== 1. 配置 APN =====
     snprintf(cmd, sizeof(cmd), "AT+CGDCONT=1,\"IP\",\"%s\"", apn);
     if (!sendCommand(cmd, "OK", 10000)) {
         Serial.println("[Air780ep] APN 配置失败");
         return false;
     }
 
-    // 激活 PDP context
-    if (!sendCommand("AT+CGACT=1,1", "OK", 30000)) {
-        Serial.println("[Air780ep] PDP 激活失败");
-        return false;
+    // ===== 2. GPRS 附着 =====
+    if (sendCommand("AT+CGATT?", "+CGATT: 1", 5000)) {
+        Serial.println("[Air780ep] GPRS 已附着");
+    } else {
+        Serial.print("[Air780ep] GPRS 附着中...");
+        if (!sendCommand("AT+CGATT=1", "OK", 20000)) {
+            Serial.println(" 失败");
+            return false;
+        }
+        delay(3000);
+        if (!sendCommand("AT+CGATT?", "+CGATT: 1", 8000)) {
+            Serial.println("[Air780ep] GPRS 附着确认失败");
+            return false;
+        }
+        Serial.println(" 成功");
     }
 
-    // 检查网络注册状态
-    if (!sendCommand("AT+CREG?", "+CREG: 0,1", 5000)
-        && !sendCommand("AT+CREG?", "+CREG: 0,5", 5000)) {
-        // 注册状态可能是 1（已注册）或 5（已注册漫游）
-        // 如果不是，也继续尝试
-        Serial.println("[Air780ep] 网络注册状态检查未通过");
+    // ===== 3. 激活 PDP（只用 CGACT，不用 QIACT） =====
+    flushUART();
+    Serial.print("[Air780ep] PDP 激活中...");
+    if (!sendCommand("AT+CGACT=1,1", "OK", 20000)) {
+        // 可能已经激活了
+        sendCommand("AT+CGACT?", "+CGACT: 1,1", 5000, &resp);
+        if (resp.indexOf("+CGACT: 1,1") < 0) {
+            Serial.println(" 失败");
+            return false;
+        }
+    }
+    delay(2000);
+
+    // ===== 4. 获取 IP =====
+    resp = "";
+    if (sendCommand("AT+CGPADDR=1", "+CGPADDR: 1,", 5000, &resp)) {
+        int idx = resp.indexOf('"');
+        if (idx >= 0) {
+            String ip = resp.substring(idx + 1);
+            int end = ip.indexOf('"');
+            if (end >= 0) ip = ip.substring(0, end);
+            Serial.printf("[Air780ep] PDP 激活成功, IP: %s\n", ip.c_str());
+        }
     }
 
-    // 检查 GPRS 附着状态
-    if (!sendCommand("AT+CGATT?", "+CGATT: 1", 10000)) {
-        Serial.println("[Air780ep] GPRS 附着失败");
-        return false;
-    }
+    Serial.printf("[Air780ep] GPRS 配置完成, APN=%s\n", apn);
 
-    Serial.printf("[Air780ep] GPRS 配置成功, APN=%s\n", apn);
+    // 标记 GPRS 已配置
+    gprsConfigured = true;
     return true;
+}
+
+bool Air780epDriver::resetModule()
+{
+    Serial.println("[Air780ep] 硬件复位模块...");
+    moduleReady = false;
+    gprsConfigured = false;
+    cipMode = false;
+    tcpConnected = false;
+
+    pinMode(AT_PWRKEY, OUTPUT);
+    digitalWrite(AT_PWRKEY, LOW);
+    delay(1200);
+    digitalWrite(AT_PWRKEY, HIGH);
+
+    // 等待模块重新就绪
+    for (int i = 0; i < 15; i++) {
+        if (sendCommand("AT", "OK", 3000)) {
+            // 重新初始化
+            sendCommand("ATE0", "OK", 2000);
+            sendCommand("AT+QIURC=1", "OK", 2000);
+            moduleReady = true;
+            Serial.println("[Air780ep] 硬件复位成功，模块就绪");
+            flushUART();
+            return true;
+        }
+        Serial.printf("[Air780ep] 等待复位就绪... (%d/15)\n", i + 1);
+    }
+
+    Serial.println("[Air780ep] 硬件复位失败");
+    return false;
 }
 
 bool Air780epDriver::connectTCP(const char *host, uint16_t port)
@@ -380,48 +559,96 @@ bool Air780epDriver::connectTCP(const char *host, uint16_t port)
     }
 
     sslMode = false;
+    cipMode = true;
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "AT+QIOPEN=1,%d,\"TCP\",\"%s\",%u",
-             currentConnectId, host, port);
 
-    // 发送连接命令
-    uart->print(cmd);
-    uart->print("\r\n");
+    // 1. 彻底清理：CIPSHUT 关闭所有残留连接
+    flushUART();
+    uart->print("AT+CIPSHUT\r\n");
 
-    // 等待 +QIOPEN: <id>,<result>  其中 result=0 表示成功
-    // 超时时间 120 秒（模块可能需要时间建立连接）
-    unsigned long start = millis();
-    String response;
+    // 构建 CIPSTART 命令
+    snprintf(cmd, sizeof(cmd), "AT+CIPSTART=\"TCP\",\"%s\",%u", host, port);
 
-    while (millis() - start < 120000) {
-        while (uart->available()) {
-            String line = uart->readStringUntil('\n');
-            line.trim();
+    // 2. 建立 CIP TCP 连接（最多重试 3 次）
+    tcpConnected = false;
 
-            if (line.startsWith("+QIURC:")) {
-                handleURC(line);
-                continue;
-            }
+    for (int retry = 0; retry < 3 && !tcpConnected && moduleReady; retry++) {
+        if (retry > 0) {
+            Serial.printf("[TCP] CIPSTART 重试 (%d/3)...\n", retry + 1);
+            // 重试前先清理残留连接
+            flushUART();
+            uart->print("AT+CIPSHUT\r\n");
+            delay(500);
+            while (uart->available()) uart->read();
+            flushUART();
+        }
 
-            if (line.length() > 0) {
-                if (response.length() > 0) response += "\n";
-                response += line;
-            }
+        // 发送 CIPSTART 命令
+        uart->print(cmd);
+        uart->print("\r\n");
 
-            // 检查连接结果: +QIOPEN: <id>,<err>
-            if (line.startsWith("+QIOPEN:")) {
-                int comma = line.indexOf(',');
-                if (comma > 0) {
-                    int err = line.substring(comma + 1).toInt();
-                    tcpConnected = (err == 0);
-                    return tcpConnected;
+        unsigned long start = millis();
+        bool cipstartFailed = false;
+
+        while (millis() - start < 20000 && !cipstartFailed && !tcpConnected) {
+            while (uart->available()) {
+                String line = uart->readStringUntil('\n');
+                line.trim();
+
+                // 无操作：ALREADY CONNECT → 关闭再试
+                if (line.indexOf("ALREADY CONNECT") >= 0) {
+                    uart->print("AT+CIPCLOSE\r\n");
+                    delay(300);
+                    while (uart->available()) uart->read();
+                    uart->print(cmd);
+                    uart->print("\r\n");
+                    break;
+                }
+                if (line.equalsIgnoreCase("CLOSED")) continue;
+
+                // 成功
+                if (line.startsWith("CONNECT OK") || line.equalsIgnoreCase("CONNECT")) {
+                    tcpConnected = true;
+                    Serial.println("[TCP] CIPSTART 连接成功");
+                    break;
+                }
+                if (line.startsWith("STATE:") && line.indexOf("CONNECT OK") >= 0) {
+                    tcpConnected = true;
+                    break;
+                }
+
+                // 失败 — 立即标记退出外层循环
+                if (line.startsWith("CONNECT FAIL") ||
+                    line.startsWith("+CME ERROR:") ||
+                    line.equalsIgnoreCase("ERROR")) {
+                    Serial.printf("[TCP] CIPSTART 失败: %s\n", line.c_str());
+                    cipstartFailed = true;
+                    break;
+                }
+
+                // 模块重启
+                if (line.indexOf("^boot.") >= 0) {
+                    Serial.println("[TCP] 模块重启");
+                    moduleReady = false;
+                    cipstartFailed = true;
+                    break;
                 }
             }
+            if (!cipstartFailed && !tcpConnected) delay(50);
         }
-        delay(50);
     }
 
-    tcpConnected = false;
+    if (tcpConnected) {
+        return true;
+    }
+
+    // 所有重试都失败
+    if (!moduleReady) {
+        Serial.println("[TCP] 模块不在就绪状态");
+    } else {
+        Serial.println("[TCP] CIPSTART 多次重试均失败");
+    }
+    cipMode = false;
     return false;
 }
 
@@ -444,9 +671,10 @@ bool Air780epDriver::connectSSL(const char *host, uint16_t port)
     uart->print("\r\n");
 
     // 等待 +QSSLOPEN: <id>,<result>  其中 result=0 表示成功
+    // 超时时间 20 秒
     unsigned long start = millis();
 
-    while (millis() - start < 120000) {
+    while (millis() - start < 20000) {
         while (uart->available()) {
             String line = uart->readStringUntil('\n');
             line.trim();
@@ -480,10 +708,14 @@ bool Air780epDriver::connectSSL(const char *host, uint16_t port)
 
 bool Air780epDriver::disconnect()
 {
-    if (!uart || !tcpConnected) return false;
+    if (!uart) return false;
 
     bool result = false;
-    if (sslMode) {
+    if (cipMode) {
+        result = sendCommand("AT+CIPSHUT", "SHUT OK", 10000) ||
+                 sendCommand("AT+CIPSHUT", "OK", 5000);
+        cipMode = false;
+    } else if (sslMode) {
         char cmd[32];
         snprintf(cmd, sizeof(cmd), "AT+QSSLCLOSE=%d", currentConnectId);
         result = sendCommand(cmd, "OK", 10000);
@@ -494,12 +726,19 @@ bool Air780epDriver::disconnect()
     }
 
     tcpConnected = false;
+    gprsConfigured = false;
     return result;
 }
 
 bool Air780epDriver::isConnected()
 {
     if (!moduleReady || !uart) return false;
+
+    if (cipMode) {
+        // CIP 模式：不发 AT+QISTATE（该命令在 CIP 模式下无效）
+        // CLOSED 通知在 available() 中处理自动更新 tcpConnected
+        return tcpConnected;
+    }
 
     char cmd[32];
     snprintf(cmd, sizeof(cmd), "AT+QISTATE=%d,1", currentConnectId);

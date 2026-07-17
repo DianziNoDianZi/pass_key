@@ -81,9 +81,14 @@ export interface ConfigUpdateResponse {
   timestamp: number;
 }
 
+export interface DeviceRegisterMessage {
+  type: 'device_register';
+  publicKey: string;
+}
+
 export type MqttMessage = AuthRequestMessage | AuthResponseMessage | SmsForwardMessage
   | TotpSyncCommand | TotpAddCommand | TotpDeleteCommand | TotpSyncResponse
-  | ConfigUpdateCommand | ConfigUpdateResponse;
+  | ConfigUpdateCommand | ConfigUpdateResponse | DeviceRegisterMessage;
 
 export interface DeviceAuth {
   deviceId: string;

@@ -24,7 +24,7 @@ export function setupMessageHandler(): void {
           handleConfigUpdateAck(message as ConfigUpdateResponse);
           break;
         case 'device_register':
-          handleDeviceRegister(topic, message as { publicKey?: string });
+          handleDeviceRegister(packet.topic, message as { publicKey?: string });
           break;
         default:
           console.log(`[MQTT Handler] Unknown message type: ${(message as any).type}`);

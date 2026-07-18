@@ -340,7 +340,7 @@ void AuthScreen::handleConfirm()
     // 构建 JSON 响应
     JsonDocument doc;
     doc["type"] = "auth_response";
-    doc["request_id"] = requestId;
+    doc["requestId"] = requestId;
     doc["status"] = "approved";
     doc["signature"] = String((char *)sigB64);
     doc["public_key"] = pubKeyB64;
@@ -366,7 +366,7 @@ void AuthScreen::handleDeny()
 {
     JsonDocument doc;
     doc["type"] = "auth_response";
-    doc["request_id"] = requestId;
+    doc["requestId"] = requestId;
     doc["status"] = "denied";
     doc["signature"] = "";
     doc["public_key"] = "";
@@ -389,7 +389,7 @@ void AuthScreen::handleTimeout()
 {
     JsonDocument doc;
     doc["type"] = "auth_response";
-    doc["request_id"] = requestId;
+    doc["requestId"] = requestId;
     doc["status"] = "timeout";
     doc["signature"] = "";
     doc["public_key"] = "";

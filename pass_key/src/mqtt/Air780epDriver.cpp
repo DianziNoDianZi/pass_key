@@ -668,37 +668,21 @@ bool Air780epDriver::connectTCP(const char *host, uint16_t port)
                     tcpConnected = true;
                     Serial.println("[TCP] CIPSTART 连接成功");
                     // 等待 TCP 握手完成（模块需完成 TCP ACK，过早发 CIPSEND 会 CME ERROR: 3）
-                    delay(500);
+                    // 注意：Air780ep 默认 TCP 空闲超时约 5 秒，总等待时间不能超过此值。
+                    // 同时也需要给模块内部 TCP 数据路径足够的初始化时间。
+                    // 折中方案：延迟共 1.5s，既给模块初始化时间，又留有 3.5s 余量避免空闲超时。
+                    // CIPSTO/CIPKEEPALIVE 该模块均不支持（返回 ERROR），不浪费时间去尝试。
+                    delay(1500);
                     flushUART();
-                    // 尝试设置 TCP 空闲超时（部分模块支持，Air780ep 报 ERROR 但不影响连接）
-                    uart->print("AT+CIPSTO=120\r\n");
-                    {
-                        String resp = readResponse(1500);
-                        if (resp.indexOf("OK") >= 0) {
-                            Serial.println("[TCP] CIPSTO=120 配置成功");
-                        }
-                        // ERROR 是正常（模块不支持），继续往下走
-                    }
-                    // 注意：不要发 CIPSEND 预热包！任何提前发送的数据都会被服务器当作 MQTT 协议
-                    // 数据解析。1 字节 0x20 会被解析为 CONNACK 包，导致 Aedes 报错并关闭连接。
-                    // 改为延长等待时间，让模块的 TCP 数据路径有足够时间初始化。
-                    delay(2500);  // 额外等待 2.5 秒，总计约 4.5 秒（含前面的 0.5s + CIPSTO 1.5s）
-                    // 注：CIPKEEPALIVE 在该模块上总返回 ERROR，不再重试（浪费 ~2 秒）
                     break;
                 }
                 if (line.startsWith("STATE:") && line.indexOf("CONNECT OK") >= 0) {
                     tcpConnected = true;
                     delay(500);
                     flushUART();
-                    // 同样尝试设置 TCP 超时
-                    uart->print("AT+CIPSTO=120\r\n");
-                    {
-                        String resp = readResponse(1500);
-                        if (resp.indexOf("OK") >= 0) {
-                            Serial.println("[TCP] CIPSTO=120 配置成功");
-                        }
-                    }
-                    delay(2500);  // 同上，模块 TCP 数据路径初始化时间
+                    // CIPSTO 同上，不尝试；等待 1s 让模块初始化
+                    delay(1000);
+                    flushUART();
                     break;
                 }
 

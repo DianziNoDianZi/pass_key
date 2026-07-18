@@ -667,62 +667,31 @@ bool Air780epDriver::connectTCP(const char *host, uint16_t port)
                 if (line.startsWith("CONNECT OK") || line.equalsIgnoreCase("CONNECT")) {
                     tcpConnected = true;
                     Serial.println("[TCP] CIPSTART 连接成功");
-                    // 等待 TCP 连接稳定（CIPSTART 返回 CONNECT OK 后模块仍需时间完成 TCP 握手）
-                    // 过早发 CIPSEND 会导致 CME ERROR: 3
-                    delay(1500);
+                    // 等待 TCP 握手完成（模块需完成 TCP ACK，过早发 CIPSEND 会 CME ERROR: 3）
+                    delay(500);
                     flushUART();
-                    // ===== 关键：设置 TCP 超时（模块默认通常为 5 秒，空闲 5s 后自动关闭连接） =====
-                    // 设置为 120 秒，确保 MQTT 心跳（10 秒间隔）在超时前到达
+                    // 尝试设置 TCP 空闲超时（部分模块支持，Air780ep 报 ERROR 但不影响连接）
                     uart->print("AT+CIPSTO=120\r\n");
                     {
-                        String resp = readResponse(2000);
+                        String resp = readResponse(1500);
                         if (resp.indexOf("OK") >= 0) {
-                            Serial.println("[TCP] CIPSTO=120 配置成功 (空闲超时 120s)");
-                        } else {
-                            Serial.printf("[TCP] CIPSTO 响应: %s\n", resp.c_str());
+                            Serial.println("[TCP] CIPSTO=120 配置成功");
                         }
+                        // ERROR 是正常（模块不支持），继续往下走
                     }
-                    // 设置 TCP keepalive：防止蜂窝网络 NAT 超时断联
-                    // 先试 Quectel 格式，若 ERROR 再试简易格式
-                    {
-                        flushUART();
-                        uart->print("AT+CIPKEEPALIVE=1,10,30,5\r\n");
-                        String resp = readResponse(2000);
-                        Serial.printf("[TCP] CIPKEEPALIVE 响应: %s\n", resp.c_str());
-                        if (resp.indexOf("ERROR") >= 0) {
-                            // 回退到 SIMCOM 简易格式
-                            flushUART();
-                            uart->print("AT+CIPKEEPALIVE=5\r\n");
-                            resp = readResponse(2000);
-                            Serial.printf("[TCP] CIPKEEPALIVE 简易格式响应: %s\n", resp.c_str());
-                            if (resp.indexOf("OK") >= 0) {
-                                Serial.println("[TCP] CIPKEEPALIVE 简易格式配置成功");
-                            }
-                        } else if (resp.indexOf("OK") >= 0) {
-                            Serial.println("[TCP] CIPKEEPALIVE 配置成功 (idle=10s, interval=30s, count=5)");
-                        }
-                    }
+                    // 注：CIPKEEPALIVE 在该模块上总返回 ERROR，不再重试（浪费 ~2 秒）
                     break;
                 }
                 if (line.startsWith("STATE:") && line.indexOf("CONNECT OK") >= 0) {
                     tcpConnected = true;
-                    delay(1500);
+                    delay(500);
                     flushUART();
-                    // 同样设置 keepalive
+                    // 同样尝试设置 TCP 超时
+                    uart->print("AT+CIPSTO=120\r\n");
                     {
-                        flushUART();
-                        uart->print("AT+CIPKEEPALIVE=1,10,30,5\r\n");
-                        String resp = readResponse(2000);
-                        Serial.printf("[TCP] CIPKEEPALIVE 响应: %s\n", resp.c_str());
-                        if (resp.indexOf("ERROR") >= 0) {
-                            flushUART();
-                            uart->print("AT+CIPKEEPALIVE=5\r\n");
-                            resp = readResponse(2000);
-                            if (resp.indexOf("OK") >= 0) {
-                                Serial.println("[TCP] CIPKEEPALIVE 简易格式配置成功");
-                            }
-                        } else if (resp.indexOf("OK") >= 0) {
-                            Serial.println("[TCP] CIPKEEPALIVE 配置成功 (idle=10s, interval=30s, count=5)");
+                        String resp = readResponse(1500);
+                        if (resp.indexOf("OK") >= 0) {
+                            Serial.println("[TCP] CIPSTO=120 配置成功");
                         }
                     }
                     break;

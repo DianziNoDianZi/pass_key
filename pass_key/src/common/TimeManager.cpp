@@ -159,6 +159,23 @@ bool TimeManager::parseAndSetTime(const String &response)
         return false;
     }
 
+    // 设置时区，使 getLocalTime() 能正确转换回本地时间
+    char tzBuf[32];
+    if (TZ_OFFSET_SEC > 0) {
+        // UTC+X → POSIX 格式需要反号: UTC-X（如 UTC+8 → "UTC-08:00"）
+        int tzH = TZ_OFFSET_SEC / 3600;
+        int tzM = (TZ_OFFSET_SEC % 3600) / 60;
+        snprintf(tzBuf, sizeof(tzBuf), "UTC-%02d:%02d", tzH, tzM);
+    } else if (TZ_OFFSET_SEC < 0) {
+        int tzH = -TZ_OFFSET_SEC / 3600;
+        int tzM = (-TZ_OFFSET_SEC % 3600) / 60;
+        snprintf(tzBuf, sizeof(tzBuf), "UTC+%02d:%02d", tzH, tzM);
+    } else {
+        strcpy(tzBuf, "UTC+00:00");
+    }
+    setenv("TZ", tzBuf, 1);
+    tzset();
+
     timeSynced = true;
     Serial.printf("[Time] AT+CCLK 同步成功: %04d-%02d-%02d %02d:%02d:%02d\n",
                    year, month, day, hour, minute, second);

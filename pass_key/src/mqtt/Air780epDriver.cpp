@@ -316,7 +316,10 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
             delay(5);  // 更短的延迟，更快响应
         }
         if (!gotPrompt) {
-            Serial.println("[CIPSEND] 超时未收到 > 提示符");
+            // 模块不响应 > 提示符，说明 TCP 连接已断或模块卡死
+            // 立即标记 TCP 断开，让上层尽快触发重连
+            tcpConnected = false;
+            Serial.println("[CIPSEND] 超时未收到 > 提示符，标记 TCP 断开");
             return false;
         }
 
@@ -339,7 +342,9 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
                     }
                 }
             }
-            Serial.printf("[CIPSEND] 发送 %u 字节: SEND OK 超时\n", (unsigned int)len);
+            // SEND OK 超时通常意味着 TCP 已断，模块无法确认数据到达对端
+            tcpConnected = false;
+            Serial.printf("[CIPSEND] 发送 %u 字节: SEND OK 超时，标记 TCP 断开\n", (unsigned int)len);
         } else {
             // 成功时只简短打印，减少 Serial 占用
             if (len > 64) {
@@ -377,6 +382,8 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
     }
 
     if (!gotPrompt) {
+        tcpConnected = false;
+        Serial.println("[CIPSEND/QI] 超时未收到 > 提示符，标记 TCP 断开");
         return false;
     }
 
@@ -389,7 +396,12 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
     }
 
     // 等待 SEND OK
-    return waitForResponse("SEND OK", 5000);
+    bool qiSent = waitForResponse("SEND OK", 5000);
+    if (!qiSent) {
+        tcpConnected = false;
+        Serial.println("[CIPSEND/QI] SEND OK 超时，标记 TCP 断开");
+    }
+    return qiSent;
 }
 
 int Air780epDriver::receiveData(uint8_t *buffer, size_t maxLen)

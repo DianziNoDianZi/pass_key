@@ -21,7 +21,7 @@
 // ==================== 按键 ====================
 #define BTN_UP      GPIO_NUM_6
 #define BTN_DOWN    GPIO_NUM_7
-#define BTN_CONFIRM GPIO_NUM_20
+#define BTN_CONFIRM GPIO_NUM_4
 #define BTN_DEBOUNCE_MS  50    // 按键去抖时间 (ms)
 
 // ==================== Air780ep (UART) ====================
@@ -40,7 +40,7 @@
 #define MQTT_BROKER_PORT_SSL 8883     // MQTTS 默认端口
 #define MQTT_DEVICE_ID       "pass_key_test"
 #define MQTT_USERNAME        "pass_key_test"
-#define MQTT_PASSWORD        "c6b92b9b2ddf41ad4caa97610837ee9edb819e4c3d50e3d1ef8ad78b429c72de"
+#define MQTT_PASSWORD        "c65a35bb9846270cc4f5fec2230a416ace6d3f05460f3405319b8a9a0219a0ce"
 #define MQTT_KEEPALIVE       60
 
 // ==================== Air780ep 4G 模块配置 ====================
@@ -53,12 +53,12 @@
 
 // 延迟等待 Serial 连接，确保输出完整
 // 如果开启 USB CDC，Serial.begin 不需要指定波特率
-
+#define TZ_OFFSET_SEC     (0 * 3600)   // UTC+0
 // ==================== NTP 配置 ====================
 #define NTP_SERVER1        "pool.ntp.org"
 
 // ==================== 时区配置 ====================
-#define TZ_OFFSET_SEC     (8 * 3600)   // 东八区 UTC+8
+#define TZ_OFFSET_SEC     (0 * 3600)   // UTC+0
 
 // ==================== TOTP 配置 ====================
 #define TOTP_PERIOD       30           // TOTP 刷新周期（秒）

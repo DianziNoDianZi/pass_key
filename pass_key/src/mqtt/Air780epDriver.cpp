@@ -671,6 +671,17 @@ bool Air780epDriver::connectTCP(const char *host, uint16_t port)
                     // 过早发 CIPSEND 会导致 CME ERROR: 3
                     delay(1500);
                     flushUART();
+                    // ===== 关键：设置 TCP 超时（模块默认通常为 5 秒，空闲 5s 后自动关闭连接） =====
+                    // 设置为 120 秒，确保 MQTT 心跳（10 秒间隔）在超时前到达
+                    uart->print("AT+CIPSTO=120\r\n");
+                    {
+                        String resp = readResponse(2000);
+                        if (resp.indexOf("OK") >= 0) {
+                            Serial.println("[TCP] CIPSTO=120 配置成功 (空闲超时 120s)");
+                        } else {
+                            Serial.printf("[TCP] CIPSTO 响应: %s\n", resp.c_str());
+                        }
+                    }
                     // 设置 TCP keepalive：防止蜂窝网络 NAT 超时断联
                     // 先试 Quectel 格式，若 ERROR 再试简易格式
                     {

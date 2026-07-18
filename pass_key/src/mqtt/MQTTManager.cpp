@@ -188,6 +188,11 @@ bool MQTTManager::isConnected() const
     return connected;
 }
 
+bool MQTTManager::isReconnecting() const
+{
+    return !connected && reconnectAttempts > 0;
+}
+
 bool MQTTManager::publish(const char *topic, const char *payload, bool retained)
 {
     if (!initialized) return false;

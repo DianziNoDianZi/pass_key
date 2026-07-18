@@ -136,17 +136,32 @@ void DisplayManager::handleButtonPress(uint8_t button)
 
 void DisplayManager::showStatusBar()
 {
-    // iOS 风格状态栏 — 纯黑背景，仅显示连接指示和时间
+    // iOS 风格状态栏 — 纯黑背景
     tft.fillRect(0, 0, TFT_WIDTH, 16, APPLE_BG);
 
-    // 左侧连接指示：绿色圆点+ON / 红色圆点+OFF
+    // 左侧网络状态指示
     tft.setTextSize(1);
     if (mqttManager.isConnected()) {
+        // 已连接：绿色圆点 + "ON"
         tft.fillCircle(8, 8, 3, APPLE_GREEN);
         tft.setTextColor(APPLE_GREEN, APPLE_BG);
         tft.setCursor(14, 4);
         tft.print("ON");
+    } else if (mqttManager.isReconnecting()) {
+        // 重连中：黄色 "REC" + 黄色圆点
+        tft.fillCircle(8, 8, 3, TFT_YELLOW);
+        tft.setTextColor(TFT_YELLOW, APPLE_BG);
+        tft.setCursor(14, 4);
+        tft.print("REC");
+        // 显示重连次数（小字）
+        int n = mqttManager.getReconnectAttempts();
+        if (n > 0) {
+            tft.setCursor(38, 4);
+            tft.setTextColor(APPLE_GRAY, APPLE_BG);
+            tft.printf("#%d", n);
+        }
     } else {
+        // 断连：红色 "OFF"
         tft.fillCircle(8, 8, 3, APPLE_RED);
         tft.setTextColor(APPLE_GRAY, APPLE_BG);
         tft.setCursor(14, 4);

@@ -80,6 +80,17 @@ public:
     bool isConnected() const;
 
     /**
+     * @brief 检查是否正在重连
+     * @return true 连接断开且已在重连过程中
+     */
+    bool isReconnecting() const;
+
+    /**
+     * @brief 获取重连尝试次数
+     */
+    int getReconnectAttempts() const { return reconnectAttempts; }
+
+    /**
      * @brief 发布消息
      */
     bool publish(const char *topic, const char *payload, bool retained = false);

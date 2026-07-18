@@ -325,8 +325,8 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
 
         // 发送数据
         uart->write(data, len);
-        // SEND OK 最多等 5 秒（TCP 发送不应超过 1 秒）
-        bool sent = waitForResponse("SEND OK", 5000);
+        // SEND OK 最多等 10 秒（初始连接时 TCP 路径未稳定，可能需更久）
+        bool sent = waitForResponse("SEND OK", 10000);
         if (!sent) {
             // 检查缓冲区是否有 CME ERROR（异步来的，waitForResponse 可能已经读到了）
             // 还要检查 UART 中是否有残留错误
@@ -395,8 +395,8 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
         sent += chunk;
     }
 
-    // 等待 SEND OK
-    bool qiSent = waitForResponse("SEND OK", 5000);
+    // 等待 SEND OK（最多 10 秒，初始连接时需更多时间）
+    bool qiSent = waitForResponse("SEND OK", 10000);
     if (!qiSent) {
         tcpConnected = false;
         Serial.println("[CIPSEND/QI] SEND OK 超时，标记 TCP 断开");

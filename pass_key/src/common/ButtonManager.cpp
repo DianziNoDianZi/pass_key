@@ -137,6 +137,15 @@ bool ButtonManager::init()
 
 void ButtonManager::update()
 {
+    // 诊断：每 50 次循环打印一次引脚实时电平
+    static uint8_t diagCount = 0;
+    if (++diagCount == 0) {
+        Serial.printf("[BTN] 诊断实时: up=%d down=%d confirm=%d\n",
+            gpio_get_level((gpio_num_t)BTN_UP),
+            gpio_get_level((gpio_num_t)BTN_DOWN),
+            gpio_get_level((gpio_num_t)BTN_CONFIRM));
+    }
+
     if (!hasEvents) return;
 
     // 取出事件队列中的所有待处理状态变化

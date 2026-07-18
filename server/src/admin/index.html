@@ -299,8 +299,8 @@ async function loadDevices() {
     const list=data.devices||[];
     const c=document.getElementById('device-list');
     if (!list.length) c.innerHTML='<div class="empty"><div class="icon">📱</div>暂无设备</div>';
-    else c.innerHTML='<table><thead><tr><th>设备ID</th><th>名称</th><th>公钥</th><th>注册时间</th></tr></thead><tbody>'+
-      list.map(d=>`<tr><td style="font-family:monospace;font-size:12px;">${d.device_id||'-'}</td><td>${d.name||'-'}</td><td>${d.public_key?'<span class="status-dot green"></span>已注册':'<span class="status-dot gray"></span>未注册'}</td><td style="color:#999;font-size:11px;">${formatTime(d.created_at)}</td></tr>`).join('')+'</tbody></table>';
+    else c.innerHTML='<table><thead><tr><th>设备ID</th><th>名称</th><th>公钥</th><th>注册时间</th><th>操作</th></tr></thead><tbody>'+
+      list.map(d=>`<tr><td style="font-family:monospace;font-size:12px;">${d.device_id||'-'}</td><td>${d.name||'-'}</td><td>${d.public_key?'<span class="status-dot green"></span>已注册':'<span class="status-dot gray"></span>未注册'}</td><td style="color:#999;font-size:11px;">${formatTime(d.created_at)}</td><td><button class="btn btn-sm btn-outline" onclick="testAuth('${d.device_id}')">🔐 测试登录</button></td></tr>`).join('')+'</tbody></table>';
   } catch(e){}
 }
 
@@ -459,6 +459,19 @@ async function registerDevice() {
       loadDevices(); loadDashboard();
     } else showToast('注册失败: '+(data.error||''));
   } catch(e) { showToast('注册失败: '+e.message); }
+}
+
+// ===== Test Auth =====
+async function testAuth(deviceId) {
+  if (!confirm('向设备 ' + deviceId + ' 发送测试登录请求？')) return;
+  showToast('发送测试登录请求...');
+  try {
+    const res=await fetch(API+'/api/auth/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deviceId,website:'测试站点',source:'管理面板测试'})});
+    const data=await res.json();
+    if (res.ok) {
+      showToast('✅ 已发送，请求ID: ' + data.requestId.slice(0,12) + '…');
+    } else showToast('发送失败: '+(data.error||''));
+  } catch(e) { showToast('发送失败: '+e.message); }
 }
 
 function formatTime(t) {

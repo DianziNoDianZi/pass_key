@@ -15,6 +15,7 @@
 #include "ProgressBar.h"
 
 #include "TOTPScreen.h"
+#include "ToastScreen.h"
 #include "ButtonManager.h"
 #include "PowerManager.h"
 #include "TimeManager.h"
@@ -318,6 +319,14 @@ void setup()
 
                 // 通知屏幕刷新
                 displayManager.notifyEvent("totp_accounts_changed");
+
+                // 弹出 Toast 提示同步结果
+                {
+                    char toastMsg[48];
+                    snprintf(toastMsg, sizeof(toastMsg), "TOTP 同步完成\n%d 个账户", count);
+                    ToastScreen *toast = new ToastScreen(&displayManager, String(toastMsg));
+                    displayManager.pushScreen(toast);
+                }
 
                 // 发送确认
                 String resp;

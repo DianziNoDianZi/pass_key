@@ -189,7 +189,10 @@ router.post('/:deviceId/sync', (req: Request, res: Response) => {
     secret: decryptSeed(a.encrypted_seed),
   }));
 
-  res.json({ accounts: decrypted });
+  res.json({ accounts: decrypted, pushed: true });
+
+  // 同步到设备
+  sendTotpSync(deviceId as string);
 });
 
 export default router;

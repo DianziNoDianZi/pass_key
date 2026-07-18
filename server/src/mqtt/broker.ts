@@ -49,6 +49,7 @@ const options: AedesOptions = {
       }
     }
     // Deny all other publishes
+    console.warn(`[MQTT Broker] Denied publish from=${client?.id} topic=${packet.topic}`);
     callback(new Error('Not authorized to publish to this topic'));
   },
 
@@ -69,6 +70,24 @@ const options: AedesOptions = {
 };
 
 const broker = new Aedes(options);
+
+// ===== 诊断事件监听 =====
+broker.on('client', (client: Client) => {
+  console.log(`[MQTT Broker] Client connected: ${client.id}`);
+});
+broker.on('clientDisconnect', (client: Client) => {
+  console.log(`[MQTT Broker] Client disconnected: ${client.id}`);
+});
+broker.on('publish', (packet: PublishPacket, client: Client | null) => {
+  // 不记录心跳，避免刷屏
+  if (packet.topic && !packet.topic.startsWith('$SYS/')) {
+    console.log(`[MQTT Broker] Publish from=${client?.id || '(server)'} topic=${packet.topic} len=${packet.payload?.length || 0}`);
+  }
+});
+broker.on('subscribe', (subscription: Subscription, client: Client) => {
+  console.log(`[MQTT Broker] Subscribe from=${client.id} topic=${subscription.topic}`);
+});
+// =========================
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

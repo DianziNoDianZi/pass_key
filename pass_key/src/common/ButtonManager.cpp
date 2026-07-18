@@ -124,6 +124,12 @@ bool ButtonManager::init()
     }
 
     Serial.printf("[BTN] 定时器启动成功，周期=%dus\n", SCAN_INTERVAL_US);
+
+    // 诊断：打印各引脚初始电平
+    for (int i = 0; i < 3; i++) {
+        int raw = gpio_get_level((gpio_num_t)buttons[i].pin);
+        Serial.printf("[BTN] 诊断 pin=%d init_level=%d\n", buttons[i].pin, raw);
+    }
     return true;
 }
 

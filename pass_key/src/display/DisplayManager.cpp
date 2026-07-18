@@ -67,6 +67,11 @@ void DisplayManager::popScreen()
 {
     if (screenStack.empty()) return;
 
+    // 栈底为根屏幕（主菜单），不让删除
+    if (screenStack.size() == 1) {
+        return;
+    }
+
     screenStack.back()->onDeactivate();
     delete screenStack.back();
     screenStack.pop_back();
@@ -120,9 +125,13 @@ void DisplayManager::handleButtonPress(uint8_t button)
 
     Screen *current = screenStack.back();
     current->onButtonPress(button);
-    clear();
-    current->onDraw(tft);
-    showStatusBar();
+
+    // onButtonPress 可能通过 closeRequest 导致屏幕弹出（如 AuthScreen）
+    // 只有当前屏幕还在时，才刷新显示
+    if (!screenStack.empty() && screenStack.back() == current) {
+        clear();
+        current->onDraw(tft);
+    }
 }
 
 void DisplayManager::showStatusBar()

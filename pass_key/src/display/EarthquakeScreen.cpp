@@ -64,14 +64,14 @@ void EarthquakeScreen::onButtonPress(uint8_t button)
 
 void EarthquakeScreen::onUpdate()
 {
-    uint32_t now = millis();
-
     if (closeRequested) {
         if (displayManager) {
-            displayManager->popScreen();
+            displayManager->requestPop();
         }
         return;
     }
+
+    uint32_t now = millis();
 
     // 计算当前倒计时
     uint32_t elapsedSec = (now - startTime) / 1000;
@@ -86,14 +86,15 @@ void EarthquakeScreen::onUpdate()
         remaining = countdownSec - elapsedSec;
     }
 
-    // 闪烁切换：每 500ms 交替
-    if (now - lastFlashToggle >= 500) {
+    // 边框脉冲：每 1s 交替（信息始终可见，边框闪烁吸引注意）
+    if (now - lastFlashToggle >= 1000) {
         flashState = !flashState;
         lastFlashToggle = now;
 
         if (displayManager) {
-            displayManager->clear();
+            // 不 clear 全屏，只重绘边框（避免闪烁时信息消失）
             drawAlertScreen(displayManager->getTFT(), flashState);
+            // 状态栏被红底覆盖，需要重新绘制
             displayManager->showStatusBar();
         }
     }
@@ -126,6 +127,8 @@ String EarthquakeScreen::getDepthStr() const
 
 void EarthquakeScreen::drawAlertScreen(TFT_eSPI &tft, bool isBright)
 {
+    // 红色背景始终不变
+    // 所有信息始终可见，仅边框脉冲闪烁吸引注意
     uint32_t now = millis();
     uint32_t elapsedSec = (now - startTime) / 1000;
     int remaining;
@@ -135,36 +138,42 @@ void EarthquakeScreen::drawAlertScreen(TFT_eSPI &tft, bool isBright)
         remaining = countdownSec - elapsedSec;
     }
 
+    // 脉冲边框颜色：亮时为白，暗时为深红
+    uint16_t borderColor = isBright ? TFT_WHITE : 0x7800; // 暗红
+
     if (waveArrived || remaining == 0) {
-        // ===== 地震波已到达：红底 + 警示文字 =====
+        // ===== 地震波已到达 =====
         tft.fillScreen(TFT_RED);
 
-        if (isBright) {
-            tft.setTextColor(TFT_WHITE, TFT_RED);
+        // 脉冲边框
+        tft.drawRect(0, 0, TFT_WIDTH, TFT_HEIGHT, borderColor);
+        tft.drawRect(1, 1, TFT_WIDTH - 2, TFT_HEIGHT - 2, borderColor);
 
-            tft.setTextSize(4);
-            const char *warnIcon = "!!";
-            tft.setCursor((TFT_WIDTH - tft.textWidth(warnIcon)) / 2, 30);
-            tft.print(warnIcon);
+        // !! 警告图标（始终显示）
+        tft.setTextColor(TFT_WHITE, TFT_RED);
+        tft.setTextSize(4);
+        const char *warnIcon = "!!";
+        tft.setCursor((TFT_WIDTH - tft.textWidth(warnIcon)) / 2, 30);
+        tft.print(warnIcon);
 
-            tft.setTextSize(2);
-            const char *msg = "Seismic Wave";
-            tft.setCursor((TFT_WIDTH - tft.textWidth(msg)) / 2, 80);
-            tft.print(msg);
+        // 警示文字（始终显示）
+        tft.setTextSize(2);
+        const char *msg = "Seismic Wave";
+        tft.setCursor((TFT_WIDTH - tft.textWidth(msg)) / 2, 80);
+        tft.print(msg);
 
-            tft.setTextSize(2);
-            const char *msg2 = "Has Arrived!";
-            tft.setCursor((TFT_WIDTH - tft.textWidth(msg2)) / 2, 108);
-            tft.print(msg2);
+        tft.setTextSize(2);
+        const char *msg2 = "Has Arrived!";
+        tft.setCursor((TFT_WIDTH - tft.textWidth(msg2)) / 2, 108);
+        tft.print(msg2);
 
-            tft.setTextSize(1);
-            const char *protect = "Drop, Cover, Hold On";
-            tft.setCursor((TFT_WIDTH - tft.textWidth(protect)) / 2, 150);
-            tft.print(protect);
-        }
-
-        tft.setTextColor(isBright ? TFT_WHITE : 0x7800, TFT_RED);
         tft.setTextSize(1);
+        const char *protect = "Drop, Cover, Hold On";
+        tft.setCursor((TFT_WIDTH - tft.textWidth(protect)) / 2, 150);
+        tft.print(protect);
+
+        // 底部提示
+        tft.setTextColor(TFT_WHITE, TFT_RED);
         const char *dismissHint = "Press any key to dismiss";
         tft.setCursor((TFT_WIDTH - tft.textWidth(dismissHint)) / 2, TFT_HEIGHT - 16);
         tft.print(dismissHint);
@@ -173,65 +182,74 @@ void EarthquakeScreen::drawAlertScreen(TFT_eSPI &tft, bool isBright)
         // ===== 倒计时阶段（地震波尚未到达）=====
         tft.fillScreen(TFT_RED);
 
-        if (isBright) {
-            tft.setTextColor(TFT_WHITE, TFT_RED);
-            tft.setTextSize(2);
-            const char *title = "EARTHQUAKE";
-            tft.setCursor((TFT_WIDTH - tft.textWidth(title)) / 2, TITLE_Y);
-            tft.print(title);
-            tft.setTextSize(1);
-            const char *subtitle = "Early Warning";
-            tft.setCursor((TFT_WIDTH - tft.textWidth(subtitle)) / 2, TITLE_Y + 18);
-            tft.print(subtitle);
+        // 脉冲边框
+        tft.drawRect(0, 0, TFT_WIDTH, TFT_HEIGHT, borderColor);
+        tft.drawRect(1, 1, TFT_WIDTH - 2, TFT_HEIGHT - 2, borderColor);
 
-            tft.setTextSize(3);
-            tft.setCursor((TFT_WIDTH - tft.textWidth(epicenter.c_str())) / 2, ICON_Y);
-            tft.print(epicenter);
+        // --- 以下所有信息始终可见 ---
+        tft.setTextColor(TFT_WHITE, TFT_RED);
 
-            tft.setTextSize(2);
-            String magStr = "M " + getMagnitudeStr();
-            String depthStr = getDepthStr();
-            if (depthStr.length() > 0) {
-                magStr += "  |  Depth: " + depthStr;
-            }
-            tft.setCursor((TFT_WIDTH - tft.textWidth(magStr.c_str())) / 2, MAG_Y);
-            tft.print(magStr);
+        // 第 1 行：标题
+        tft.setTextSize(2);
+        const char *title = "EARTHQUAKE";
+        tft.setCursor((TFT_WIDTH - tft.textWidth(title)) / 2, TITLE_Y);
+        tft.print(title);
+        tft.setTextSize(1);
+        const char *subtitle = "Early Warning";
+        tft.setCursor((TFT_WIDTH - tft.textWidth(subtitle)) / 2, TITLE_Y + 18);
+        tft.print(subtitle);
 
-            tft.setTextSize(1);
-            String intenseStr = "Intensity: " + intensity;
-            tft.setCursor((TFT_WIDTH - tft.textWidth(intenseStr.c_str())) / 2, INFO_Y);
-            tft.print(intenseStr);
+        // 第 2 行：震中位置
+        tft.setTextSize(3);
+        tft.setCursor((TFT_WIDTH - tft.textWidth(epicenter.c_str())) / 2, ICON_Y);
+        tft.print(epicenter);
 
-            char countdownBuf[16];
-            if (remaining > 0) {
-                snprintf(countdownBuf, sizeof(countdownBuf), "%us", remaining);
-            } else {
-                snprintf(countdownBuf, sizeof(countdownBuf), "NOW");
-            }
+        // 第 3 行：震级 + 深度
+        tft.setTextSize(2);
+        String magStr = "M " + getMagnitudeStr();
+        String depthStr = getDepthStr();
+        if (depthStr.length() > 0) {
+            magStr += "  |  Depth: " + depthStr;
+        }
+        tft.setCursor((TFT_WIDTH - tft.textWidth(magStr.c_str())) / 2, MAG_Y);
+        tft.print(magStr);
 
-            uint16_t countdownColor = (remaining > 20) ? TFT_WHITE
-                                     : (remaining > 10) ? TFT_YELLOW
-                                     : 0xFDA0;
-            tft.setTextColor(countdownColor, TFT_RED);
-            tft.setTextSize(6);
+        // 第 4 行：烈度
+        tft.setTextSize(1);
+        String intenseStr = "Intensity: " + intensity;
+        tft.setCursor((TFT_WIDTH - tft.textWidth(intenseStr.c_str())) / 2, INFO_Y);
+        tft.print(intenseStr);
 
-            int cdW = tft.textWidth(countdownBuf);
-            if (cdW > TFT_WIDTH - 10) {
-                tft.setTextSize(4);
-                cdW = tft.textWidth(countdownBuf);
-            }
-            tft.setCursor((TFT_WIDTH - cdW) / 2, COUNTDOWN_Y);
-            tft.print(countdownBuf);
-
-            tft.setTextColor(TFT_WHITE, TFT_RED);
-            tft.setTextSize(1);
-            const char *cdLabel = "Seconds to Arrival";
-            tft.setCursor((TFT_WIDTH - tft.textWidth(cdLabel)) / 2, COUNTDOWN_Y + 48);
-            tft.print(cdLabel);
+        // 第 5 行：倒计时
+        char countdownBuf[16];
+        if (remaining > 0) {
+            snprintf(countdownBuf, sizeof(countdownBuf), "%us", remaining);
+        } else {
+            snprintf(countdownBuf, sizeof(countdownBuf), "NOW");
         }
 
-        tft.setTextColor(isBright ? TFT_WHITE : 0x7800, TFT_RED);
+        uint16_t countdownColor = (remaining > 20) ? TFT_WHITE
+                                 : (remaining > 10) ? TFT_YELLOW
+                                 : 0xFDA0;
+        tft.setTextColor(countdownColor, TFT_RED);
+        tft.setTextSize(6);
+
+        int cdW = tft.textWidth(countdownBuf);
+        if (cdW > TFT_WIDTH - 10) {
+            tft.setTextSize(4);
+            cdW = tft.textWidth(countdownBuf);
+        }
+        tft.setCursor((TFT_WIDTH - cdW) / 2, COUNTDOWN_Y);
+        tft.print(countdownBuf);
+
+        // 倒计时标签
+        tft.setTextColor(TFT_WHITE, TFT_RED);
         tft.setTextSize(1);
+        const char *cdLabel = "Seconds to Arrival";
+        tft.setCursor((TFT_WIDTH - tft.textWidth(cdLabel)) / 2, COUNTDOWN_Y + 48);
+        tft.print(cdLabel);
+
+        // 底部提示
         const char *dismissHint = "Press any key to dismiss";
         tft.setCursor((TFT_WIDTH - tft.textWidth(dismissHint)) / 2, TFT_HEIGHT - 12);
         tft.print(dismissHint);

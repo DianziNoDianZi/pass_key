@@ -60,6 +60,7 @@ private:
     AuthSelection   selection;
     uint32_t        startTime;      // 屏幕启动时间 (ms)
     uint32_t        statusStartTime; // 状态显示开始时间 (ms)
+    bool            closeRequested; // 请求关闭
 
     // 常量
     static const int AUTH_TIMEOUT_SEC    = 60;

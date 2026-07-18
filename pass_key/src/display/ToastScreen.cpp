@@ -40,7 +40,7 @@ void ToastScreen::onUpdate()
 {
     if (closeRequested || (millis() - startTime >= autoCloseMs)) {
         if (displayManager) {
-            displayManager->popScreen();
+            displayManager->requestPop();
         }
     }
 }

@@ -36,6 +36,7 @@ AuthScreen::AuthScreen(const String &reqId, const String &web,
     , selection(AUTH_SEL_CONFIRM)
     , startTime(0)
     , statusStartTime(0)
+    , closeRequested(false)
 {
 }
 
@@ -78,12 +79,18 @@ void AuthScreen::onButtonPress(uint8_t button)
 
     // 在状态显示（已确认/已拒绝/已超时）阶段，按键关闭屏幕
     if (state == AUTH_APPROVED || state == AUTH_DENIED || state == AUTH_TIMEOUT) {
-        displayManager.popScreen();
+        closeRequested = true;
     }
 }
 
 void AuthScreen::onUpdate()
 {
+    // 关闭请求
+    if (closeRequested) {
+        displayManager.requestPop();
+        return;
+    }
+
     unsigned long now = millis();
 
     if (state == AUTH_WAITING) {
@@ -106,13 +113,13 @@ void AuthScreen::onUpdate()
 
     // 状态显示结束后自动关闭
     if (state == AUTH_APPROVED && (now - statusStartTime) >= STATUS_APPROVED_MS) {
-        displayManager.popScreen();
+        displayManager.requestPop();
     }
     if (state == AUTH_DENIED && (now - statusStartTime) >= STATUS_DENIED_MS) {
-        displayManager.popScreen();
+        displayManager.requestPop();
     }
     if (state == AUTH_TIMEOUT && (now - statusStartTime) >= STATUS_TIMEOUT_MS) {
-        displayManager.popScreen();
+        displayManager.requestPop();
     }
 }
 

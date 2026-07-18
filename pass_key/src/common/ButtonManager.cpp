@@ -89,9 +89,16 @@ void IRAM_ATTR ButtonManager::timerISR(void *arg)
 
 bool ButtonManager::init()
 {
-    // 1. 配置 GPIO
+    // 1. 配置 GPIO（使用 ESP-IDF 驱动 API，比 Arduino pinMode 更可靠）
+    gpio_config_t cfg[3];
     for (int i = 0; i < 3; i++) {
-        pinMode(buttons[i].pin, INPUT_PULLUP);
+        cfg[i].pin_bit_mask = (1ULL << buttons[i].pin);
+        cfg[i].mode = GPIO_MODE_INPUT;
+        cfg[i].pull_up_en = GPIO_PULLUP_ONLY;
+        cfg[i].pull_down_en = GPIO_PULLDOWN_DISABLE;
+        cfg[i].intr_type = GPIO_INTR_DISABLE;
+        gpio_config(&cfg[i]);
+
         buttons[i].lastState        = HIGH;
         buttons[i].currentState     = HIGH;
         buttons[i].stableState      = HIGH;

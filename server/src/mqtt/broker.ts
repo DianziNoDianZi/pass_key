@@ -86,40 +86,23 @@ broker.on('client', (client: Client) => {
   console.log(`[MQTT Broker] Client connected: ${client.id}`);
   clientConnectTimes.set(client.id, Date.now());
 
-  // 启用 TCP keepalive（每 5 秒发探测包，最多重试 3 次，间隔 3 秒）
-  // 这能穿透大部分 NAT 网关，防止 ISP 的 NAT 映射因空闲超时被删除
+  // 启用 TCP keepalive（使用系统默认延迟，Linux 默认 2 小时）
+  // 设备每 3 秒发送应用层心跳，实际已足够维持 NAT 映射。
+  // TCP keepalive 作为兜底机制，避免极端情况下的死连接。
   try {
     const conn = (client as any).conn;
     if (conn && typeof conn.setKeepAlive === 'function') {
-      conn.setKeepAlive(true, 5000);
+      conn.setKeepAlive(true);
     }
   } catch (err) {
     // setKeepAlive 不是关键功能，失败不影响运行
   }
 });
-broker.on('clientReady', (client: Client) => {
-  // 禁用 Aedes 内置的 MQTT keepalive 超时定时器
-  //
-  // Aedes 在 CONNECT 处理阶段调用 setKeepAlive()，用 packet.keepalive × 1500
-  // 计算超时并启动 retimer。之后每个 PINGREQ/PUBLISH 到达时，定时器被重设。
-  //
-  // 问题：设备通过蜂窝 4G 接入，PINGREQ 可能因 NAT 延迟/丢包未到达 Broker，
-  // 导致定时器在 15 秒后触发，踢掉连接。即使 TCP 连接实际是通的。
-  //
-  // 方案：移除 Aedes 的应用层 keepalive，改由以下双重机制保活：
-  //   1. TCP keepalive（上面已启用）：每 5 秒从服务端发探测包，刷新 NAT 映射
-  //   2. 设备心跳 PUBLISH（每 10 秒）：即时有数据流量，应用层确认连接正常
-  //
-  // clear() 需要 retimer 类型，通过 any 绕过类型检查
-  try {
-    const c = client as any;
-    if (c._keepaliveTimer && typeof c._keepaliveTimer.clear === 'function') {
-      c._keepaliveTimer.clear();
-      c._keepaliveInterval = 0;
-    }
-  } catch (err) {
-    // keepalive 定时器清理失败不影响连接正常运行
-  }
+broker.on('clientReady', () => {
+  // MQTT keepalive 超时由设备端的 MQTT_KEEPALIVE 值决定（已设为 65535，约 27 小时）。
+  // 设备每 3 秒发送应用层心跳 PUBLISH，确保 _lastIncomingActivity 持续更新。
+  // 因此 Aedes 的 keepalive 检查永远不会触发超时断开。
+  // 无需操作 Aedes 内部定时器。
 });
 broker.on('clientDisconnect', (client: Client) => {
   // 计算连接时长

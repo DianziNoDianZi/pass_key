@@ -41,8 +41,8 @@
 #define MQTT_DEVICE_ID       "pass_key_test"
 #define MQTT_USERNAME        "pass_key_test"
 #define MQTT_PASSWORD        "c65a35bb9846270cc4f5fec2230a416ace6d3f05460f3405319b8a9a0219a0ce"
-#define MQTT_KEEPALIVE       120     // 120 秒，禁止 PubSubClient 频繁发 PINGREQ（2 字节 CIPSEND 不稳定）
-                                        // 改为由应用层心跳 PUBLISH（10 秒间隔，真实数据流量）保活
+#define MQTT_KEEPALIVE       65535   // 最大值，Aedes 计算超时为 65535×1.5≈27 小时，实际永远不会触发。
+                                        // 设备每 3 秒发应用层心跳 PUBLISH 保活，PINGREQ 不再需要。
 
 // ==================== Air780ep 4G 模块配置 ====================
 #define AIR780EP_APN         "CMIOT"   // 中国移动物联网 APN

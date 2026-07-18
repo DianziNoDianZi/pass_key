@@ -679,6 +679,26 @@ bool Air780epDriver::connectTCP(const char *host, uint16_t port)
                         }
                         // ERROR 是正常（模块不支持），继续往下走
                     }
+                    // TCP 预热：发送 1 字节哑数据，激活模块的 TCP 数据发送路径
+                    // 目的：Air780ep 在 CIPSTART 返回 CONNECT OK 后，内部 TCP 数据路径
+                    // 可能尚未完全就绪（常见固件竞态），直接发大数据包（如 108 字节 MQTT CONNECT）
+                    // 可能导致数据被模块内部丢弃，收不到 SEND OK。
+                    // 发送 1 字节确保 TCP 数据路径被真正激活，后续正常数据包能顺利发送。
+                    {
+                        uart->print("AT+CIPSEND=1\r\n");
+                        String warmupResp = readResponse(1000);
+                        if (warmupResp.indexOf(">") >= 0) {
+                            uart->print(" ");  // 发送 1 字节空格
+                            warmupResp = readResponse(3000);
+                            if (warmupResp.indexOf("SEND OK") >= 0) {
+                                Serial.println("[TCP] 预热 CIPSEND 成功");
+                            } else {
+                                Serial.println("[TCP] 预热 CIPSEND 无响应，继续连接");
+                            }
+                        } else {
+                            Serial.println("[TCP] 预热 CIPSEND 未收到 > 提示符，继续连接");
+                        }
+                    }
                     // 注：CIPKEEPALIVE 在该模块上总返回 ERROR，不再重试（浪费 ~2 秒）
                     break;
                 }
@@ -692,6 +712,22 @@ bool Air780epDriver::connectTCP(const char *host, uint16_t port)
                         String resp = readResponse(1500);
                         if (resp.indexOf("OK") >= 0) {
                             Serial.println("[TCP] CIPSTO=120 配置成功");
+                        }
+                    }
+                    // TCP 预热（同上）
+                    {
+                        uart->print("AT+CIPSEND=1\r\n");
+                        String warmupResp = readResponse(1000);
+                        if (warmupResp.indexOf(">") >= 0) {
+                            uart->print(" ");
+                            warmupResp = readResponse(3000);
+                            if (warmupResp.indexOf("SEND OK") >= 0) {
+                                Serial.println("[TCP] 预热 CIPSEND 成功");
+                            } else {
+                                Serial.println("[TCP] 预热 CIPSEND 无响应，继续连接");
+                            }
+                        } else {
+                            Serial.println("[TCP] 预热 CIPSEND 未收到 > 提示符，继续连接");
                         }
                     }
                     break;

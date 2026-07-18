@@ -185,10 +185,11 @@ code { font-size:12px; word-break:break-all; background:#f5f5f5; padding:3px 6px
     <div id="totp-manual-input">
       <div class="form-group"><label>发行商 (Issuer)</label><input id="totp-issuer" placeholder="例如: Google"></div>
       <div class="form-group"><label>账户名称</label><input id="totp-account-name" placeholder="例如: user@gmail.com"></div>
-      <div class="form-group"><label>Secret (Base32)</label><input id="totp-secret" placeholder="例如: JBSWY3DPEHPK3PXP"><div class="hint">Base32 编码，不含空格</div></div>
+      <div class="form-group" id="totp-secret-group"><label>Secret (Base32)</label><input id="totp-secret" placeholder="例如: JBSWY3DPEHPK3PXP"><div class="hint">Base32 编码，不含空格</div></div>
     </div>
-    <div id="totp-uri-input" style="display:none;">
-      <div class="form-group"><label>otpauth:// URI</label><input id="totp-uri" placeholder="otpauth://totp/..."></div>
+    <div id="totp-uri-input">
+      <div class="form-group"><label>otpauth:// URI</label><input id="totp-uri" placeholder="otpauth://totp/..." oninput="parseTotpUriPreview()"></div>
+      <div class="hint" id="totp-uri-preview" style="color:#888;font-size:12px;margin-top:-8px;margin-bottom:12px;"></div>
     </div>
     <div class="form-actions">
       <button class="btn btn-sm btn-outline" onclick="closeAddTotpModal()">取消</button>
@@ -328,24 +329,61 @@ function showAddTotpModal() {
 function closeAddTotpModal() { document.getElementById('add-totp-modal').classList.remove('show'); }
 function toggleTotpInputMode() {
   const mode=document.getElementById('totp-import-mode').value;
-  document.getElementById('totp-manual-input').style.display=mode==='manual'?'block':'none';
-  document.getElementById('totp-uri-input').style.display=mode==='uri'?'block':'none';
+  document.getElementById('totp-secret-group').style.display=mode==='manual'?'block':'none';
+  if (mode==='uri') {
+    parseTotpUriPreview();
+  }
+}
+
+function parseTotpUriPreview() {
+  const uri=document.getElementById('totp-uri').value.trim();
+  const preview=document.getElementById('totp-uri-preview');
+  // Try client-side URI parsing for a quick preview
+  try {
+    const url=new URL(uri);
+    if (url.protocol==='otpauth:' && url.hostname==='totp') {
+      const path=url.pathname.replace(/^\//,'').split(':');
+      const parsedIssuer=url.searchParams.get('issuer')||path[0]||'';
+      const parsedAccount=path.length>1?path.slice(1).join(':'):path[0];
+      const secret=url.searchParams.get('secret')||'';
+      // Auto-fill the editable fields with parsed values (doesn't override manual edits)
+      if (!document.getElementById('totp-issuer').value) {
+        document.getElementById('totp-issuer').value=parsedIssuer;
+      }
+      if (!document.getElementById('totp-account-name').value) {
+        document.getElementById('totp-account-name').value=parsedAccount;
+      }
+      preview.textContent='✓ 已识别: '+parsedIssuer+(parsedAccount!==parsedIssuer?' / '+parsedAccount:'')+'  (Secret: '+secret.substring(0,4)+'...)';
+      preview.style.color='#34c759';
+    } else {
+      preview.textContent='⚠️ 需要 otpauth://totp/ 格式的 URI';
+      preview.style.color='#ff9500';
+    }
+  } catch {
+    if (uri.length>0) {
+      preview.textContent='⚠️ URI 格式无效';
+      preview.style.color='#ff3b30';
+    } else {
+      preview.textContent='';
+    }
+  }
 }
 
 async function addTotpAccount() {
   const deviceId=document.getElementById('totp-device-select').value;
   const mode=document.getElementById('totp-import-mode').value;
+  const issuer=document.getElementById('totp-issuer').value.trim();
+  const accountName=document.getElementById('totp-account-name').value.trim();
   let body;
   if (mode==='uri') {
     const uri=document.getElementById('totp-uri').value.trim();
     if (!uri) { showToast('请输入 URI'); return; }
-    body=JSON.stringify({uri});
+    if (!issuer) { showToast('URI 中未解析出发行商，请手动填写'); return; }
+    body=JSON.stringify({uri, issuer, account_name: accountName});
   } else {
-    const issuer=document.getElementById('totp-issuer').value.trim();
-    const accountName=document.getElementById('totp-account-name').value.trim();
     const secret=document.getElementById('totp-secret').value.trim();
     if (!issuer||!secret) { showToast('发行商和 Secret 不能为空'); return; }
-    body=JSON.stringify({issuer,account_name:accountName,secret});
+    body=JSON.stringify({issuer, account_name: accountName, secret});
   }
   try {
     const res=await fetch(API+'/api/totp/'+deviceId,{method:'POST',headers:{'Content-Type':'application/json'},body});

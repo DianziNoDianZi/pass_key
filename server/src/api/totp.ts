@@ -96,8 +96,9 @@ router.post('/:deviceId', (req: Request, res: Response) => {
       res.status(400).json({ error: '无效的 otpauth:// URI' });
       return;
     }
-    issuer = parsed.issuer;
-    accountName = parsed.accountName;
+    // URI 解析值作为默认值，允许客户端覆盖
+    issuer = req.body.issuer || parsed.issuer;
+    accountName = req.body.account_name || parsed.accountName;
     secret = parsed.secret;
   } else {
     issuer = req.body.issuer || '';

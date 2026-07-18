@@ -6,11 +6,13 @@
 #include "TOTPScreen.h"
 #include "DisplayManager.h"
 #include "TOTPManager.h"
+#include "TimeManager.h"
 #include "ButtonManager.h"
 #include "config.h"
 
 // ==================== 外部全局实例 ====================
 extern TOTPManager totpManager;
+extern TimeManager timeManager;
 
 // ==================== 构造 / 析构 ====================
 
@@ -254,6 +256,7 @@ void TOTPScreen::drawCodeView(TFT_eSPI &tft)
 
     String accountName = totpManager.getAccountName(selectedIndex);
     uint32_t remaining = totpManager.getRemainingSeconds();
+    bool timeSynced = (timeManager.getUnixTime() != 0);
 
     // 1. 账户名称（灰色小字，类似 iOS 锁屏上的应用名称）
     tft.setTextColor(APPLE_GRAY, APPLE_BG);
@@ -261,8 +264,17 @@ void TOTPScreen::drawCodeView(TFT_eSPI &tft)
     tft.setCursor((TFT_WIDTH - tft.textWidth(accountName.c_str())) / 2, 30);
     tft.print(accountName);
 
+    // 1b. 时间未同步警告（橙色小字）
+    if (!timeSynced) {
+      tft.setTextColor(APPLE_ORANGE, APPLE_BG);
+      tft.setTextSize(1);
+      const char *warn = "Time not synced";
+      tft.setCursor((TFT_WIDTH - tft.textWidth(warn)) / 2, 46);
+      tft.print(warn);
+    }
+
     // 2. 6 位验证码（超大粗体，屏幕中央，白色）
-    int codeY = TFT_HEIGHT / 2 - 35;
+    int codeY = timeSynced ? (TFT_HEIGHT / 2 - 35) : (TFT_HEIGHT / 2 - 30);
     tft.setTextColor(PASSKEY_WHITE, APPLE_BG);
     tft.setTextSize(6);
     int codeW = tft.textWidth(currentCode.c_str());

@@ -293,13 +293,17 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
                     break;
                 }
                 // 快速检测错误或断开，不等超时
-                // 模块可能在等待期间发送 CLOSED/ERROR
-                if (c == 'E' || c == 'C') {
-                    // 读一整行看是不是 ERROR/CLOSED
+                // 模块可能在等待期间发送 CLOSED/ERROR/CME ERROR
+                if (c == 'E' || c == 'C' || c == '+') {
+                    // 读一整行看是不是 ERROR/CLOSED/CME ERROR
                     String line = String(c) + uart->readStringUntil('\n');
                     line.trim();
-                    if (line.indexOf("ERROR") >= 0) {
+                    if (line.indexOf("ERROR") >= 0 || line.indexOf("CME ERROR") >= 0) {
                         Serial.printf("[CIPSEND] 模块返回错误: %s\n", line.c_str());
+                        if (line.indexOf("CME ERROR: 3") >= 0) {
+                            tcpConnected = false;
+                            Serial.println("[CIPSEND] CME ERROR: 3 → TCP 不可用");
+                        }
                         return false;
                     }
                     if (line.indexOf("CLOSED") >= 0) {
@@ -321,6 +325,20 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
         // SEND OK 最多等 5 秒（TCP 发送不应超过 1 秒）
         bool sent = waitForResponse("SEND OK", 5000);
         if (!sent) {
+            // 检查缓冲区是否有 CME ERROR（异步来的，waitForResponse 可能已经读到了）
+            // 还要检查 UART 中是否有残留错误
+            if (uart) {
+                while (uart->available()) {
+                    String errLine = uart->readStringUntil('\n');
+                    errLine.trim();
+                    if (errLine.indexOf("CME ERROR: 3") >= 0 ||
+                        errLine.indexOf("+CME ERROR: 3") >= 0) {
+                        Serial.println("[CIPSEND] CME ERROR: 3 → TCP 连接不可用，标记断开");
+                        tcpConnected = false;
+                        break;
+                    }
+                }
+            }
             Serial.printf("[CIPSEND] 发送 %u 字节: SEND OK 超时\n", (unsigned int)len);
         } else {
             // 成功时只简短打印，减少 Serial 占用
@@ -637,6 +655,10 @@ bool Air780epDriver::connectTCP(const char *host, uint16_t port)
                 if (line.startsWith("CONNECT OK") || line.equalsIgnoreCase("CONNECT")) {
                     tcpConnected = true;
                     Serial.println("[TCP] CIPSTART 连接成功");
+                    // 等待 TCP 连接稳定（CIPSTART 返回 CONNECT OK 后模块仍需时间完成 TCP 握手）
+                    // 过早发 CIPSEND 会导致 CME ERROR: 3
+                    delay(1500);
+                    flushUART();
                     // 设置 TCP keepalive：防止蜂窝网络 NAT 超时断联
                     // 先试 Quectel 格式，若 ERROR 再试简易格式
                     {
@@ -661,6 +683,8 @@ bool Air780epDriver::connectTCP(const char *host, uint16_t port)
                 }
                 if (line.startsWith("STATE:") && line.indexOf("CONNECT OK") >= 0) {
                     tcpConnected = true;
+                    delay(1500);
+                    flushUART();
                     // 同样设置 keepalive
                     {
                         flushUART();

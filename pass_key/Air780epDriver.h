@@ -165,6 +165,11 @@ public:
      */
     bool isSSLMode() const { return sslMode; }
 
+    /**
+     * @brief 清空 UART 接收缓冲区（丢弃所有未读数据）
+     */
+    void flushUART();
+
 private:
     HardwareSerial *uart;
     bool  moduleReady;
@@ -178,11 +183,6 @@ private:
     uint8_t rxBuf[AIR780EP_RX_BUF_SIZE];
     volatile size_t rxHead;
     volatile size_t rxTail;
-
-    /**
-     * @brief 清空 UART 接收缓冲区
-     */
-    void flushUART();
 
     /**
      * @brief 从环形缓冲区读取一个字节

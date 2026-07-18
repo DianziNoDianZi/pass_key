@@ -89,7 +89,7 @@ export interface DeviceRegisterMessage {
 
 export interface EarthquakeAlertMessage {
   type: 'earthquake_alert';
-  epicenter: string;       // 震中位置名称（如 "泸定"）
+  epicenter: string;       // 震中位置名称（拼音/英文，如 "Luding"）
   magnitude: number;        // 震级（如 6.8）
   intensity: string;        // 本地预估烈度（如 "V度"）
   countdown: number;        // 地震波到达倒计时（秒）

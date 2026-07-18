@@ -127,8 +127,7 @@ String EarthquakeScreen::getDepthStr() const
 
 void EarthquakeScreen::drawAlertScreen(TFT_eSPI &tft, bool isBright)
 {
-    // 红色背景始终不变
-    // 所有信息始终可见，仅边框脉冲闪烁吸引注意
+    // 红色背景始终不变，所有信息始终可见，仅边框脉冲闪烁吸引注意
     uint32_t now = millis();
     uint32_t elapsedSec = (now - startTime) / 1000;
     int remaining;
@@ -149,14 +148,14 @@ void EarthquakeScreen::drawAlertScreen(TFT_eSPI &tft, bool isBright)
         tft.drawRect(0, 0, TFT_WIDTH, TFT_HEIGHT, borderColor);
         tft.drawRect(1, 1, TFT_WIDTH - 2, TFT_HEIGHT - 2, borderColor);
 
-        // !! 警告图标（始终显示）
+        // !! 警告图标
         tft.setTextColor(TFT_WHITE, TFT_RED);
         tft.setTextSize(4);
         const char *warnIcon = "!!";
         tft.setCursor((TFT_WIDTH - tft.textWidth(warnIcon)) / 2, 30);
         tft.print(warnIcon);
 
-        // 警示文字（始终显示）
+        // 警示文字
         tft.setTextSize(2);
         const char *msg = "Seismic Wave";
         tft.setCursor((TFT_WIDTH - tft.textWidth(msg)) / 2, 80);
@@ -186,7 +185,7 @@ void EarthquakeScreen::drawAlertScreen(TFT_eSPI &tft, bool isBright)
         tft.drawRect(0, 0, TFT_WIDTH, TFT_HEIGHT, borderColor);
         tft.drawRect(1, 1, TFT_WIDTH - 2, TFT_HEIGHT - 2, borderColor);
 
-        // --- 以下所有信息始终可见 ---
+        // 所有信息始终可见
         tft.setTextColor(TFT_WHITE, TFT_RED);
 
         // 第 1 行：标题
@@ -199,7 +198,7 @@ void EarthquakeScreen::drawAlertScreen(TFT_eSPI &tft, bool isBright)
         tft.setCursor((TFT_WIDTH - tft.textWidth(subtitle)) / 2, TITLE_Y + 18);
         tft.print(subtitle);
 
-        // 第 2 行：震中位置
+        // 第 2 行：震中位置（国际化 — 服务器应传拼音或英文）
         tft.setTextSize(3);
         tft.setCursor((TFT_WIDTH - tft.textWidth(epicenter.c_str())) / 2, ICON_Y);
         tft.print(epicenter);

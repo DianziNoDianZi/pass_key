@@ -10,9 +10,9 @@ const router = Router();
  *
  * Body:
  *   deviceId    - 目标设备 ID
- *   epicenter   - 震中位置名称（如 "泸定"）
+ *   epicenter   - 震中位置名称（拼音/英文，如 "Luding"）
  *   magnitude   - 震级（如 6.8）
- *   intensity   - 本地预估烈度（如 "V度"）
+ *   intensity   - 本地预估烈度（如 "V" 或 "V-degree"）
  *   countdown   - 地震波到达倒计时（秒）
  *   depth       - 震源深度（公里，可选）
  *

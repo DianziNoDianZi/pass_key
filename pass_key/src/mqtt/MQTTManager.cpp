@@ -136,14 +136,15 @@ bool MQTTManager::connect()
     Serial.print("[MQTT] MQTT CONNECT...");
     bool mqttOk = false;
 
-    // 带用户名密码认证
+    // 带用户名密码认证（持久会话，断线后 Broker 不会丢弃队列中的消息）
     if (strlen(MQTT_USERNAME) > 0 && strcmp(MQTT_USERNAME, "user") != 0) {
-        mqttOk = mqttClient->connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD);
+        // cleanSession=false: broker 保持 session, 离线期间 QoS1 消息不会丢失
+        mqttOk = mqttClient->connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD, 0, 0, 0, 0, false);
     } else if (strlen(MQTT_PASSWORD) > 0 && strcmp(MQTT_PASSWORD, "password") != 0) {
-        mqttOk = mqttClient->connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD);
+        mqttOk = mqttClient->connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD, 0, 0, 0, 0, false);
     } else {
-        // 如果用户名/密码还是默认值，使用无认证连接
-        mqttOk = mqttClient->connect(clientId.c_str());
+        // 如果用户名/密码还是默认值，使用无认证连接（持久会话）
+        mqttOk = mqttClient->connect(clientId.c_str(), 0, 0, 0, 0, 0, 0, false);
     }
 
     if (mqttOk) {
@@ -450,14 +451,14 @@ bool MQTTManager::attemptReconnect()
         return false;
     }
 
-    // MQTT CONNECT
+    // MQTT CONNECT（持久会话，离线消息不丢失）
     bool mqttOk = false;
     if (strlen(MQTT_USERNAME) > 0 && strcmp(MQTT_USERNAME, "user") != 0) {
-        mqttOk = mqttClient->connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD);
+        mqttOk = mqttClient->connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD, 0, 0, 0, 0, false);
     } else if (strlen(MQTT_PASSWORD) > 0 && strcmp(MQTT_PASSWORD, "password") != 0) {
-        mqttOk = mqttClient->connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD);
+        mqttOk = mqttClient->connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD, 0, 0, 0, 0, false);
     } else {
-        mqttOk = mqttClient->connect(clientId.c_str());
+        mqttOk = mqttClient->connect(clientId.c_str(), 0, 0, 0, 0, 0, 0, false);
     }
 
     if (mqttOk) {

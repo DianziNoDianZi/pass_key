@@ -97,10 +97,15 @@ export interface EarthquakeAlertMessage {
   timestamp: number;
 }
 
+export interface HeartbeatMessage {
+  type: 'heartbeat';
+  t: number;                // 时间戳（millis）
+}
+
 export type MqttMessage = AuthRequestMessage | AuthResponseMessage | SmsForwardMessage
   | TotpSyncCommand | TotpAddCommand | TotpDeleteCommand | TotpSyncResponse
   | ConfigUpdateCommand | ConfigUpdateResponse | DeviceRegisterMessage
-  | EarthquakeAlertMessage;
+  | EarthquakeAlertMessage | HeartbeatMessage;
 
 export interface DeviceAuth {
   deviceId: string;

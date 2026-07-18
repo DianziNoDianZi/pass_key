@@ -105,7 +105,10 @@ void DisplayManager::update()
     if (screenStack.empty()) return;
 
     pendingPop = false;
-    screenStack.back()->onUpdate();
+    Screen *cur = screenStack.back();
+    if (cur) {
+        cur->onUpdate();
+    }
 
     if (pendingPop && !screenStack.empty()) {
         popScreen();
@@ -124,13 +127,18 @@ void DisplayManager::handleButtonPress(uint8_t button)
     if (screenStack.empty()) return;
 
     Screen *current = screenStack.back();
+    if (!current) return;           // 防御：nullptr
+
     current->onButtonPress(button);
 
-    // onButtonPress 可能通过 closeRequest 导致屏幕弹出（如 AuthScreen）
-    // 只有当前屏幕还在时，才刷新显示
-    if (!screenStack.empty() && screenStack.back() == current) {
-        clear();
-        current->onDraw(tft);
+    // onButtonPress 后当前屏幕可能已被弹出（closeRequest → requestPop 等路径）
+    // 必须重新检查栈顶是否还是同一个屏幕
+    if (!screenStack.empty()) {
+        Screen *top = screenStack.back();
+        if (top && top == current) {
+            clear();
+            current->onDraw(tft);
+        }
     }
 }
 
@@ -166,6 +174,34 @@ void DisplayManager::showStatusBar()
         tft.setTextColor(APPLE_GRAY, APPLE_BG);
         tft.setCursor(14, 4);
         tft.print("OFF");
+    }
+
+    // 信号强度指示条（仅连接时有效）
+    if (mqttManager.isConnected()) {
+        int rssi = mqttManager.getSignalStrength();
+        if (rssi >= 0) {
+            // RSSI 映射为 0-5 格（AT+CSQ: 0=最弱, 31=最强）
+            int bars = 0;
+            if      (rssi >= 25) bars = 5;
+            else if (rssi >= 20) bars = 4;
+            else if (rssi >= 14) bars = 3;
+            else if (rssi >= 9)  bars = 2;
+            else if (rssi >= 4)  bars = 1;
+
+            // 右侧信号条：5 根竖条，从左到右递增高度
+            const int startX = TFT_WIDTH - 70;   // 紧挨时间左侧
+            const int barW  = 3;                 // 每根宽度
+            const int barGap = 1;                // 间距
+            const int barBase = 13;              // 底部 y 坐标
+            // 每根高度（从低到高）
+            const uint8_t heights[5] = {2, 4, 6, 8, 10};
+
+            for (int i = 0; i < 5; i++) {
+                int x = startX + i * (barW + barGap);
+                uint16_t color = (i < bars) ? APPLE_GREEN : APPLE_GRAY2;
+                tft.fillRect(x, barBase - heights[i], barW, heights[i], color);
+            }
+        }
     }
 
     // 右侧时间（iOS 风格，粗体居中）

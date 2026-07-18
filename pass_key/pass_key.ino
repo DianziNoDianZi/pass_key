@@ -28,6 +28,8 @@
 #include "FIDO2Manager.h"
 
 #include <ArduinoJson.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 // 全局模块实例
 DisplayManager displayManager;
@@ -51,10 +53,53 @@ void mqttCore0Task(void *pvParameters)
 {
     MQTTManager *mgr = (MQTTManager *)pvParameters;
     TickType_t lastWake = xTaskGetTickCount();
+    UBaseType_t minStack = UINT32_MAX;
+    int initPrint = 0;
 
     while (1) {
         mgr->loop();  // 心跳 + 重连（内部有 delay 让出 CPU）
+
+        // 诊断 Core 0 栈水位（前 5 次无条件输出，之后只打印新低）
+        UBaseType_t freeNow = uxTaskGetStackHighWaterMark(NULL);
+        if (freeNow < minStack || initPrint < 5) {
+            minStack = freeNow;
+            Serial.printf("[STACK] mqttCore0 剩余栈: %u 字节 (历史最低 %u)\n",
+                          freeNow, minStack);
+            initPrint++;
+        }
+
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(50));  // ~20 Hz
+    }
+}
+
+// ==================== Core 1 主循环任务 ====================
+// 默认 Arduino loop 任务栈只有 8KB，在屏幕绘制 + JSON 解析下容易溢出。
+// 改用独立任务分配 16KB 栈，确保不会栈溢出崩溃。
+void mainLoopTask(void *pvParameters)
+{
+    TickType_t lastWake = xTaskGetTickCount();
+    UBaseType_t minStack = UINT32_MAX;
+    int initPrint = 0;
+
+    while (1) {
+        buttonManager.update();       // 轮询按键状态
+        displayManager.update();      // 轮询显示屏更新
+        mqttManager.processPendingMessages();  // 处理 MQTT 消息
+        timeManager.update();         // NTP 重试
+        powerManager.update();        // 电源管理
+        fido2Manager.update();        // FIDO2 BLE
+
+        // 每秒输出栈水位 + 帧率诊断
+        UBaseType_t freeNow = uxTaskGetStackHighWaterMark(NULL);
+        if (freeNow < minStack || initPrint < 5) {
+            minStack = freeNow;
+            Serial.printf("[STACK] mainLoop 剩余栈: %u 字节 (历史最低 %u)\n",
+                          freeNow, minStack);
+            initPrint++;
+        }
+
+        // 固定帧率 50 FPS
+        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(20));
     }
 }
 
@@ -436,6 +481,20 @@ void setup()
             );
             displayManager.pushScreen(eqScreen);
         }
+        // ===== 设备重置 =====
+        else if (strcmp(type, "reset") == 0) {
+            Serial.println("[MQTT] 收到 reset 指令，请求完全重连");
+            // 发送确认
+            String resp;
+            JsonDocument respDoc;
+            respDoc["type"] = "reset_ack";
+            respDoc["status"] = "ok";
+            respDoc["timestamp"] = millis();
+            serializeJson(respDoc, resp);
+            mqttManager.publish(("passkey/" + String(MQTT_DEVICE_ID) + "/resp").c_str(), resp.c_str());
+            // 触发完全重连（会尽快断开并重新连接）
+            mqttManager.requestReset();
+        }
     });
 
     Serial.println(F("=== PassKey 初始化完成 ==="));
@@ -443,51 +502,40 @@ void setup()
     // 启动 FIDO2 BLE 广播
     fido2Manager.start();
 
+    // ---- 在 MQTT 任务启动前查询一次信号强度 ----
+    // getSignalStrength 阻塞约 200ms，不能在 MQTT 任务循环中调用
+    mqttManager.refreshSignalStrength();
+
     // ---- 启动 Core 0 MQTT 任务 ----
     // 将 MQTT 心跳/重连剥离到独立核心，主循环不再阻塞
     xTaskCreatePinnedToCore(
         mqttCore0Task,      // 任务函数
         "mqtt_core0",       // 任务名
-        16384,              // 栈大小（字节）— 8K 不够，PubSubClient 回调+PendingMsg+AT 命令栈深
+        24576,              // 栈大小（字节）— 8K→16K 仍然崩溃，确诊是栈不足导致
         &mqttManager,       // 参数（MQTTManager 实例）
         1,                  // 优先级
         NULL,               // 任务句柄（不需要）
         0                   // Core 0
     );
     Serial.println(F("[OK] Core 0 MQTT 任务已启动"));
+
+    // ---- 启动 Core 1 主循环任务 ----
+    // 默认 loop 任务栈只有 8KB，TFT 绘制 + JSON 解析 + Serial.printf 很容易超
+    xTaskCreatePinnedToCore(
+        mainLoopTask,       // 任务函数
+        "main_loop",        // 任务名
+        24576,              // 栈大小 24KB（16KB 仍溢出, 保守加大）
+        NULL,               // 参数
+        1,                  // 优先级
+        NULL,               // 任务句柄（不需要）
+        1                   // Core 1
+    );
+    Serial.println(F("[OK] Core 1 主循环任务已启动"));
 }
 
 void loop()
 {
-    static unsigned long lastStats = 0;
-    static unsigned long loopCount = 0;
-    loopCount++;
-
-    // 轮询按键状态
-    buttonManager.update();
-
-    // 轮询显示屏更新
-    displayManager.update();
-
-    // 轮询 MQTT 消息（从 Core 0 消息队列读取，非阻塞）
-    mqttManager.processPendingMessages();
-
-    // NTP 重试逻辑（首次同步失败时后台重试）
-    timeManager.update();
-
-    // 电源管理轮询（检查空闲超时，自动切换电源状态）
-    powerManager.update();
-
-    // FIDO2 BLE 事件轮询
-    fido2Manager.update();
-
-    // 每秒输出 loop 频率诊断
-    if (millis() - lastStats >= 1000) {
-        Serial.printf("[DIAG] loop 频率: %lu Hz\n", loopCount);
-        loopCount = 0;
-        lastStats = millis();
-    }
-
-    // 简单延时，避免过度占用 CPU
-    delay(10);
+    // 主循环工作已交给 mainLoopTask（Core 1, 16KB 栈）
+    // 默认 loop 任务的 8KB 栈不够用
+    vTaskDelay(pdMS_TO_TICKS(50));
 }

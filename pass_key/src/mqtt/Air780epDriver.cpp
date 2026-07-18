@@ -613,10 +613,47 @@ bool Air780epDriver::connectTCP(const char *host, uint16_t port)
                 if (line.startsWith("CONNECT OK") || line.equalsIgnoreCase("CONNECT")) {
                     tcpConnected = true;
                     Serial.println("[TCP] CIPSTART 连接成功");
+                    // 设置 TCP keepalive：防止蜂窝网络 NAT 超时断联
+                    // 先试 Quectel 格式，若 ERROR 再试简易格式
+                    {
+                        flushUART();
+                        uart->print("AT+CIPKEEPALIVE=1,10,30,5\r\n");
+                        String resp = readResponse(2000);
+                        Serial.printf("[TCP] CIPKEEPALIVE 响应: %s\n", resp.c_str());
+                        if (resp.indexOf("ERROR") >= 0) {
+                            // 回退到 SIMCOM 简易格式
+                            flushUART();
+                            uart->print("AT+CIPKEEPALIVE=5\r\n");
+                            resp = readResponse(2000);
+                            Serial.printf("[TCP] CIPKEEPALIVE 简易格式响应: %s\n", resp.c_str());
+                            if (resp.indexOf("OK") >= 0) {
+                                Serial.println("[TCP] CIPKEEPALIVE 简易格式配置成功");
+                            }
+                        } else if (resp.indexOf("OK") >= 0) {
+                            Serial.println("[TCP] CIPKEEPALIVE 配置成功 (idle=10s, interval=30s, count=5)");
+                        }
+                    }
                     break;
                 }
                 if (line.startsWith("STATE:") && line.indexOf("CONNECT OK") >= 0) {
                     tcpConnected = true;
+                    // 同样设置 keepalive
+                    {
+                        flushUART();
+                        uart->print("AT+CIPKEEPALIVE=1,10,30,5\r\n");
+                        String resp = readResponse(2000);
+                        Serial.printf("[TCP] CIPKEEPALIVE 响应: %s\n", resp.c_str());
+                        if (resp.indexOf("ERROR") >= 0) {
+                            flushUART();
+                            uart->print("AT+CIPKEEPALIVE=5\r\n");
+                            resp = readResponse(2000);
+                            if (resp.indexOf("OK") >= 0) {
+                                Serial.println("[TCP] CIPKEEPALIVE 简易格式配置成功");
+                            }
+                        } else if (resp.indexOf("OK") >= 0) {
+                            Serial.println("[TCP] CIPKEEPALIVE 配置成功 (idle=10s, interval=30s, count=5)");
+                        }
+                    }
                     break;
                 }
 

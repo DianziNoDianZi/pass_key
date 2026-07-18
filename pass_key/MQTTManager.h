@@ -91,6 +91,17 @@ public:
     int getReconnectAttempts() const { return reconnectAttempts; }
 
     /**
+     * @brief 获取信号强度 RSSI (0-31, -1=未知)
+     */
+    int getSignalStrength() const { return cachedRssi; }
+
+    /**
+     * @brief 刷新信号强度缓存（启动时调用一次，阻塞约 200ms）
+     * 不能从 MQTT 任务循环中调用，否则会干扰 MQTT 数据流。
+     */
+    void refreshSignalStrength();
+
+    /**
      * @brief 发布消息
      */
     bool publish(const char *topic, const char *payload, bool retained = false);
@@ -121,6 +132,17 @@ public:
      * @brief 发送 PINGREQ 保活
      */
     bool ping();
+
+    /**
+     * @brief 请求完全重连（从服务器发送 reset 指令时调用）
+     * 线程安全，可在任何核心调用，loop() 中择机执行
+     */
+    void requestReset();
+
+    /**
+     * @brief 检查是否有待处理的 reset 请求
+     */
+    bool isResetRequested() const { return resetRequested; }
 
     /**
      * @brief 处理 Core 0 传来的待处理 MQTT 消息
@@ -158,6 +180,10 @@ private:
     unsigned long reconnectDelay;
     int reconnectAttempts;
     int gprsFailCount;          // 连续 GPRS 配置失败次数
+    int cachedRssi;             // 缓存信号强度 RSSI (0-31, -1=未知)
+    unsigned long lastRssiPoll; // 上次 RSSI 轮询时间
+    unsigned long lastHeartbeatTime; // 应用层心跳上次发送时间
+    volatile bool resetRequested;    // 服务器请求完全重连标记
 
     // 主题
     String topicCmd;

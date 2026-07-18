@@ -37,6 +37,10 @@ MQTTManager::MQTTManager()
     , reconnectDelay(RECONNECT_DELAY_MIN)
     , reconnectAttempts(0)
     , gprsFailCount(0)
+    , cachedRssi(-1)
+    , lastRssiPoll(0)
+    , lastHeartbeatTime(0)
+    , resetRequested(false)
 {
 }
 
@@ -147,6 +151,7 @@ bool MQTTManager::connect()
         reconnectAttempts = 0;
         reconnectDelay = RECONNECT_DELAY_MIN;
         gprsFailCount = 0;
+        lastHeartbeatTime = millis();   // 重置心跳定时器，避免立即发送
         Serial.println(" 成功");
 
         // 订阅命令主题
@@ -240,6 +245,23 @@ void MQTTManager::setMessageCallback(MQTTManagerCallback callback)
     messageCallback = callback;
 }
 
+void MQTTManager::refreshSignalStrength()
+{
+    int rssi = 0;
+    if (driver && driver->getSignalStrength(rssi)) {
+        cachedRssi = rssi;
+        Serial.printf("[SIG] 信号强度 RSSI=%d\n", rssi);
+    } else {
+        cachedRssi = -1;
+    }
+}
+
+void MQTTManager::requestReset()
+{
+    resetRequested = true;
+    Serial.println("[MQTT] 收到 reset 请求，将在下次 loop 中执行完全重连");
+}
+
 void MQTTManager::loop()
 {
     if (!initialized || !mqttClient) return;
@@ -256,6 +278,21 @@ void MQTTManager::loop()
             // PubSubClient::loop() 返回 false 表示连接断开
             connected = false;
             Serial.println("[MQTT] 连接丢失");
+        }
+
+        // 应用层心跳：每 10 秒发一条真实的 MQTT PUBLISH 消息
+        // 这比裸 PINGREQ 更能保持 NAT 绑定（部分网关只跟踪实际数据包）
+        // 注意：Air780ep 不支持 AT+CIPKEEPALIVE，网络 NAT 约 15 秒超时，10 秒间隔确保安全
+        unsigned long nowMs = millis();
+        if (connected && nowMs - lastHeartbeatTime >= 10000) {
+            lastHeartbeatTime = nowMs;
+            String topic = topicResp;  // 使用 resp 主题
+            String payload = "{\"type\":\"heartbeat\",\"t\":" + String(nowMs) + "}";
+            if (mqttClient && mqttClient->publish(topic.c_str(), (const uint8_t *)payload.c_str(), payload.length(), false)) {
+                Serial.println("[MQTT] 心跳已发送");
+            } else {
+                Serial.println("[MQTT] 心跳发送失败");
+            }
         }
 
         // 发送出站队列中的消息（在 Core 0 上，与 mqttClient 在同一核心）
@@ -278,6 +315,31 @@ void MQTTManager::loop()
             }
         }
         return;  // 模块未就绪时不执行后续重连逻辑
+    }
+
+    // ===== 检查 reset 请求，执行完全重连 =====
+    if (resetRequested) {
+        resetRequested = false;
+        Serial.println("[MQTT] 执行完全重连...");
+        // 强制断开所有连接
+        if (connected) {
+            mqttClient->disconnect();
+            connected = false;
+        }
+        if (driver && driver->isConnected()) {
+            driver->disconnect();
+        }
+        // 重置 GPRS，下次重连会重新附着 PDP
+        if (driver) {
+            driver->resetGprsConfig();
+        }
+        OutgoingMsg discard;
+        while (outMsgQueue && xQueueReceive(outMsgQueue, &discard, 0) == pdTRUE) {}
+        // 让下次 reconnect 立即执行
+        lastReconnectAttempt = 0;
+        reconnectAttempts = 0;
+        reconnectDelay = RECONNECT_DELAY_MIN;
+        Serial.println("[MQTT] 完全重连触发完成，等待下次 loop 执行重连");
     }
 
     // 自动重连逻辑
@@ -400,6 +462,7 @@ bool MQTTManager::attemptReconnect()
 
     if (mqttOk) {
         gprsFailCount = 0;
+        lastHeartbeatTime = millis();   // 重置心跳定时器
         // 重新订阅命令主题
         mqttClient->subscribe(topicCmd.c_str(), 1);
         Serial.printf("[MQTT] 已订阅 %s\n", topicCmd.c_str());

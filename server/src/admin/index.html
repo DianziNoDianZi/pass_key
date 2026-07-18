@@ -99,6 +99,7 @@ code { font-size:12px; word-break:break-all; background:#f5f5f5; padding:3px 6px
   <a data-page="config">配置</a>
   <a data-page="challenges">认证记录</a>
   <a data-page="earthquake">地震预警</a>
+  <a data-page="console" style="color:#4fc3f7;">🎮 控制台</a>
   <div class="logout" onclick="doLogout()">退出</div>
 </nav>
 
@@ -177,6 +178,44 @@ code { font-size:12px; word-break:break-all; background:#f5f5f5; padding:3px 6px
   <div class="section">
     <div class="section-header"><h2>预警历史</h2></div>
     <div id="eq-history"><div class="empty"><div class="icon">📋</div>选择设备后查看历史</div></div>
+  </div>
+</div>
+
+<div class="page" id="page-console">
+  <div class="section">
+    <div class="section-header">
+      <h2>🎮 MQTT 控制台</h2>
+      <div>
+        <select id="console-device-select" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-right:8px;min-width:140px;">
+          <option value="">-- 选择设备 --</option>
+        </select>
+        <select id="console-preset" onchange="loadPreset()" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-right:8px;">
+          <option value="">快速命令</option>
+          <option value="heartbeat">💓 手动心跳</option>
+          <option value="reset">🔄 重置设备</option>
+          <option value="auth_test">🔐 测试登录请求</option>
+          <option value="totp_sync">📤 TOTP 同步</option>
+          <option value="eq_test">🚨 地震预警测试</option>
+        </select>
+        <span id="console-status" style="font-size:12px;color:#999;display:inline-block;padding:6px 0;">● 离线</span>
+      </div>
+    </div>
+    <div style="padding:16px;">
+      <div class="form-group">
+        <label>JSON 命令</label>
+        <textarea id="console-payload" rows="4" style="width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;box-sizing:border-box;" placeholder='{"type":"reset"}'></textarea>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="sendConsoleCommand()">📤 发送</button>
+        <label style="font-size:12px;color:#888;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="console-auto-scroll" checked> 自动滚动
+        </label>
+        <button class="btn btn-sm btn-outline" onclick="clearConsoleLog()" style="margin-left:auto;">清除日志</button>
+      </div>
+      <div style="background:#1a1a2e;border-radius:10px;padding:12px;max-height:420px;overflow-y:auto;font-family:'Cascadia Code','JetBrains Mono','Fira Code',monospace;font-size:12px;line-height:1.6;" id="console-log">
+        <div style="color:#666;">等待连接...</div>
+      </div>
+    </div>
   </div>
 </div>
 </div>
@@ -270,6 +309,7 @@ document.querySelectorAll('.nav a[data-page]').forEach(a=>{
     else if (p==='config') { loadDeviceSelect('config-device-select'); loadDeviceConfig(); }
     else if (p==='challenges') loadChallenges();
     else if (p==='earthquake') { loadDeviceSelect('eq-device-select'); loadEqHistory(); }
+    else if (p==='console') { loadConsoleDevices(); connectConsoleSse(); }
   });
 });
 
@@ -578,6 +618,201 @@ function formatTime(t) {
 }
 
 checkAuth();
+
+// ===== 控制台 =====
+let consoleEventSource = null;
+
+function loadConsoleDevices() {
+  const sel = document.getElementById('console-device-select');
+  // 复用已有的 devicesCache
+  if (devicesCache.length > 0) {
+    sel.innerHTML = '<option value="">-- 选择设备 --</option>' +
+      devicesCache.map(d => `<option value="${d.device_id}">${d.name || d.device_id}</option>`).join('');
+    return;
+  }
+  // 如果缓存为空，单独加载
+  authFetch(API + '/admin/data/devices').then(r => r.json()).then(data => {
+    devicesCache = data.devices || [];
+    sel.innerHTML = '<option value="">-- 选择设备 --</option>' +
+      devicesCache.map(d => `<option value="${d.device_id}">${d.name || d.device_id}</option>`).join('');
+  }).catch(() => {});
+}
+
+function connectConsoleSse() {
+  // 关闭旧连接
+  if (consoleEventSource) {
+    consoleEventSource.close();
+    consoleEventSource = null;
+  }
+
+  const token = sessionStorage.getItem('admin_token');
+  if (!token) return;
+
+  const log = document.getElementById('console-log');
+  const status = document.getElementById('console-status');
+
+  // 如果已经有状态信息，只追加日志不覆盖
+  if (log.children.length === 1 && log.children[0].textContent === '等待连接...') {
+    log.innerHTML = '';
+  }
+
+  status.textContent = '● 连接中...';
+  status.style.color = '#fbbf24';
+
+  const url = API + '/admin/console/stream?token=' + encodeURIComponent(token);
+  consoleEventSource = new EventSource(url);
+
+  consoleEventSource.onopen = () => {
+    status.textContent = '● 在线';
+    status.style.color = '#22c55e';
+    appendConsoleLog('system', 'SSE 已连接，等待设备响应...');
+  };
+
+  consoleEventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'connected') {
+        // 连接确认，忽略
+        return;
+      }
+      // 设备响应
+      const topic = data.topic || '?';
+      const payload = data.payload || '';
+      const time = new Date(data.time).toLocaleTimeString();
+
+      let formatted;
+      try {
+        formatted = JSON.stringify(JSON.parse(payload), null, 2);
+      } catch {
+        formatted = payload;
+      }
+
+      // 提取设备 ID (passkey/{deviceId}/resp)
+      const parts = topic.split('/');
+      const deviceId = parts.length >= 2 ? parts[1] : '?';
+
+      appendConsoleLog('response',
+        `[${time}] [${deviceId}] ← ${topic}\n${formatted}`);
+    } catch (e) {
+      appendConsoleLog('error', '解析 SSE 数据失败: ' + e.message);
+    }
+  };
+
+  consoleEventSource.onerror = () => {
+    status.textContent = '● 离线';
+    status.style.color = '#ef4444';
+    appendConsoleLog('error', 'SSE 连接断开，将在切换标签页时重试');
+    // 不要自动重连，切换标签页时会重新连接
+    if (consoleEventSource) {
+      consoleEventSource.close();
+      consoleEventSource = null;
+    }
+  };
+}
+
+function appendConsoleLog(type, text) {
+  const log = document.getElementById('console-log');
+  const div = document.createElement('div');
+
+  // 添加颜色
+  const colors = {
+    system: '#4fc3f7',
+    response: '#a5d6a7',
+    error: '#ef5350',
+    sent: '#fff59d',
+  };
+  div.style.color = colors[type] || '#ccc';
+  div.style.whiteSpace = 'pre-wrap';
+  div.style.wordBreak = 'break-all';
+  div.style.padding = '2px 0';
+  div.textContent = text;
+
+  log.appendChild(div);
+
+  // 自动滚动
+  if (document.getElementById('console-auto-scroll').checked) {
+    log.scrollTop = log.scrollHeight;
+  }
+}
+
+function clearConsoleLog() {
+  const log = document.getElementById('console-log');
+  log.innerHTML = '<div style="color:#666;">日志已清除</div>';
+}
+
+const CONSOLE_PRESETS = {
+  heartbeat: JSON.stringify({ type: 'heartbeat' }, null, 2),
+  reset: JSON.stringify({ type: 'reset' }, null, 2),
+  auth_test: JSON.stringify({
+    type: 'auth_request',
+    requestId: 'console_' + Date.now(),
+    website: '管理面板控制台',
+    source: '控制台手动测试',
+    challenge: 'console_test_challenge',
+    expiresAt: new Date(Date.now() + 120000).toISOString(),
+    timestamp: Date.now()
+  }, null, 2),
+  totp_sync: JSON.stringify({ type: 'totp_sync', timestamp: Date.now() }, null, 2),
+  eq_test: JSON.stringify({
+    type: 'earthquake_alert',
+    epicenter: 'Luding',
+    magnitude: 6.8,
+    intensity: 'V',
+    countdown: 30,
+    depth: 12,
+    timestamp: Date.now()
+  }, null, 2),
+};
+
+function loadPreset() {
+  const key = document.getElementById('console-preset').value;
+  if (!key) return;
+  const payload = CONSOLE_PRESETS[key];
+  if (payload) {
+    document.getElementById('console-payload').value = payload;
+  }
+  // 重置选择器
+  document.getElementById('console-preset').value = '';
+}
+
+async function sendConsoleCommand() {
+  const deviceId = document.getElementById('console-device-select').value;
+  const payloadRaw = document.getElementById('console-payload').value.trim();
+
+  if (!deviceId) { showToast('请先选择设备'); return; }
+  if (!payloadRaw) { showToast('请输入 JSON 命令'); return; }
+
+  // 验证 JSON
+  let payloadObj;
+  try {
+    payloadObj = JSON.parse(payloadRaw);
+  } catch (e) {
+    showToast('JSON 格式错误: ' + e.message);
+    return;
+  }
+
+  const time = new Date().toLocaleTimeString();
+  appendConsoleLog('sent',
+    `[${time}] [${deviceId}] → passkey/${deviceId}/cmd\n${JSON.stringify(payloadObj, null, 2)}`);
+
+  try {
+    const res = await authFetch(API + '/admin/console/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId, payload: payloadObj }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('✅ 命令已发送');
+    } else {
+      showToast('❌ 发送失败: ' + (data.error || ''));
+      appendConsoleLog('error', `发送失败: ${data.error || '未知错误'}`);
+    }
+  } catch (e) {
+    showToast('发送失败: ' + e.message);
+    appendConsoleLog('error', '请求异常: ' + e.message);
+  }
+}
 </script>
 </body>
 </html>

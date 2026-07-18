@@ -154,6 +154,12 @@ public:
     int getConnectId() const { return currentConnectId; }
 
     /**
+     * @brief 重置 GPRS 配置状态
+     * 下次 connectTCP/SSL 时会重新配置 GPRS
+     */
+    void resetGprsConfig() { gprsConfigured = false; }
+
+    /**
      * @brief 是否使用 SSL 模式
      * @return true 当前为 SSL 连接
      */

@@ -41,7 +41,7 @@
 #define MQTT_DEVICE_ID       "pass_key_test"
 #define MQTT_USERNAME        "pass_key_test"
 #define MQTT_PASSWORD        "c65a35bb9846270cc4f5fec2230a416ace6d3f05460f3405319b8a9a0219a0ce"
-#define MQTT_KEEPALIVE       60
+#define MQTT_KEEPALIVE       10      // 10 秒心跳，让 PubSubClient 统一管理
 
 // ==================== Air780ep 4G 模块配置 ====================
 #define AIR780EP_APN         "CMIOT"   // 中国移动物联网 APN

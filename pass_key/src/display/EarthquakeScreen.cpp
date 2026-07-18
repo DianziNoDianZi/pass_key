@@ -86,14 +86,16 @@ void EarthquakeScreen::onUpdate()
         remaining = countdownSec - elapsedSec;
     }
 
-    // 边框脉冲：每 1s 交替（信息始终可见，边框闪烁吸引注意）
+    // 每秒刷新：更新倒计时数字 + 边框脉冲 + 状态栏
     if (now - lastFlashToggle >= 1000) {
         flashState = !flashState;
         lastFlashToggle = now;
 
         if (displayManager) {
-            // 不 clear 全屏，只重绘边框（避免闪烁时信息消失）
-            drawAlertScreen(displayManager->getTFT(), flashState);
+            TFT_eSPI &tft = displayManager->getTFT();
+            // 重绘整个报警画面（fillScreen(TFT_RED) 写入相同红色，视觉无闪烁）
+            // 必须完整重绘才能更新倒计时数字
+            drawAlertScreen(tft, flashState);
             // 状态栏被红底覆盖，需要重新绘制
             displayManager->showStatusBar();
         }

@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { loginHandler, authMiddleware } from './auth';
 import { getDatabase } from '../db/database';
+import consoleRouter from './console';
 
 const router = Router();
 
@@ -38,6 +39,9 @@ dataRouter.get('/stats', (_req: Request, res: Response) => {
 });
 
 router.use('/data', dataRouter);
+
+// 控制台（MQTT 命令发送 + SSE 实时流）
+router.use('/console', consoleRouter);
 
 // Serve admin panel HTML
 router.get('/', (_req: Request, res: Response) => {

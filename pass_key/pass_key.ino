@@ -274,8 +274,8 @@ void setup()
             return;
         }
 
-        // 解析 JSON
-        JsonDocument doc;
+        // 解析 JSON（动态容量，避免默认 256 字节不够）
+        JsonDocument doc(length + 128);
         DeserializationError error = deserializeJson(doc, payload, length);
         if (error) {
             Serial.printf("[MQTT] JSON 解析失败: %s\n", error.c_str());

@@ -145,9 +145,10 @@ bool TimeManager::parseAndSetTime(const String &response)
     tmVal.tm_sec   = second;
     tmVal.tm_isdst = 0;
 
+    // 转换为时间戳（秒级）
     time_t epoch = mktime(&tmVal);
 
-    // 应用时区偏移（config.h 中 TZ_OFFSET_SEC = 28800 = UTC+8）
+    // 应用时区偏移（config.h 中 TZ_OFFSET_SEC 定义）
     epoch -= TZ_OFFSET_SEC;
 
     // 设置 ESP32 系统时间

@@ -133,10 +133,11 @@ bool TimeManager::syncRTC()
     tmVal.tm_sec   = second;
     tmVal.tm_isdst = 0;
 
+    // 转换为时间戳（秒级）
     time_t epoch = mktime(&tmVal);
 
-    // 应用时区偏移（config.h 中 TZ_OFFSET_SEC = 28800 = UTC+8）
-    // AT+CCLK? 返回的是模块的本地时间（已含时区偏移），
+    // 应用时区偏移（config.h 中 TZ_OFFSET_SEC 定义）
+    // AT+CCLK 返回的是模块的本地时间（已含时区偏移），
     // 所以转换为 UTC 存储到 ESP32 系统时间
     epoch -= TZ_OFFSET_SEC;
 

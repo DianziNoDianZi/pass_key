@@ -50,15 +50,14 @@
 // ESP32-S3 用 USB CDC（原生 USB 口）时需要勾选 "USB CDC On Boot"
 // 如果用的是 UART 转 USB 芯片（CH340/CP210x）则不需要
 #define SERIAL_BAUD     115200
-
-// 延迟等待 Serial 连接，确保输出完整
-// 如果开启 USB CDC，Serial.begin 不需要指定波特率
-#define TZ_OFFSET_SEC     (0 * 3600)   // UTC+0
 // ==================== NTP 配置 ====================
 #define NTP_SERVER1        "pool.ntp.org"
 
 // ==================== 时区配置 ====================
-#define TZ_OFFSET_SEC     (0 * 3600)   // UTC+0
+// AT+CCLK 返回的是本地时间，减去此偏移量得到 UTC 时间
+// 中国 = +8 小时：8 * 3600 = 28800
+// 日本 = +9 小时，新加坡 = +8 小时，欧洲 = +1 ~ +2，美国 = -5 ~ -8
+#define TZ_OFFSET_SEC     (8 * 3600)   // UTC+8（中国）
 
 // ==================== TOTP 配置 ====================
 #define TOTP_PERIOD       30           // TOTP 刷新周期（秒）

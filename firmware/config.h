@@ -54,7 +54,9 @@
 #define NTP_SERVER2        "time.nist.gov"
 #define NTP_SERVER3        "cn.ntp.org.cn"
 #define NTP_TIMEOUT_MS     5000
-#define TZ_OFFSET_SEC      28800   // UTC+8 (北京时间)
+// AT+CCLK 返回的是本地时间，减去此偏移量得到 UTC 时间
+// 中国 = +8 小时：8 * 3600 = 28800
+#define TZ_OFFSET_SEC      28800   // 8*3600, UTC+8（中国）
 
 // ==================== 其他配置 ====================
 #define SERIAL_BAUD        115200

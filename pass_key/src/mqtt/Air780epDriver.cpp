@@ -282,28 +282,52 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
         uart->print(cmd);
         uart->print("\r\n");
 
-        // 等待 ">" 提示符
+        // 等待 ">" 提示符（最多 5 秒，超过说明模块卡死）
         unsigned long start = millis();
         bool gotPrompt = false;
-        while (millis() - start < 30000) {
+        while (millis() - start < 5000) {
             if (uart->available()) {
                 char c = uart->read();
                 if (c == '>') {
                     gotPrompt = true;
                     break;
                 }
+                // 快速检测错误或断开，不等超时
+                // 模块可能在等待期间发送 CLOSED/ERROR
+                if (c == 'E' || c == 'C') {
+                    // 读一整行看是不是 ERROR/CLOSED
+                    String line = String(c) + uart->readStringUntil('\n');
+                    line.trim();
+                    if (line.indexOf("ERROR") >= 0) {
+                        Serial.printf("[CIPSEND] 模块返回错误: %s\n", line.c_str());
+                        return false;
+                    }
+                    if (line.indexOf("CLOSED") >= 0) {
+                        tcpConnected = false;
+                        Serial.println("[Air780ep] CIPSEND 时检测到 TCP 已关闭");
+                        return false;
+                    }
+                }
             }
-            delay(10);
+            delay(5);  // 更短的延迟，更快响应
         }
         if (!gotPrompt) {
-            Serial.println("[CIPSEND] 未收到 > 提示符");
+            Serial.println("[CIPSEND] 超时未收到 > 提示符");
             return false;
         }
 
         // 发送数据
         uart->write(data, len);
-        bool sent = waitForResponse("SEND OK", 15000);
-        Serial.printf("[CIPSEND] 发送 %u 字节: %s\n", (unsigned int)len, sent ? "SEND OK" : "失败");
+        // SEND OK 最多等 5 秒（TCP 发送不应超过 1 秒）
+        bool sent = waitForResponse("SEND OK", 5000);
+        if (!sent) {
+            Serial.printf("[CIPSEND] 发送 %u 字节: SEND OK 超时\n", (unsigned int)len);
+        } else {
+            // 成功时只简短打印，减少 Serial 占用
+            if (len > 64) {
+                Serial.printf("[CIPSEND] 发送 %u 字节: OK\n", (unsigned int)len);
+            }
+        }
 
         return sent;
     }
@@ -347,7 +371,7 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
     }
 
     // 等待 SEND OK
-    return waitForResponse("SEND OK", 30000);
+    return waitForResponse("SEND OK", 5000);
 }
 
 int Air780epDriver::receiveData(uint8_t *buffer, size_t maxLen)

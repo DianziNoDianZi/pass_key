@@ -281,11 +281,12 @@ void MQTTManager::loop()
             Serial.println("[MQTT] 连接丢失");
         }
 
-        // 应用层心跳：每 10 秒发一条真实的 MQTT PUBLISH 消息
-        // 这比裸 PINGREQ 更能保持 NAT 绑定（部分网关只跟踪实际数据包）
-        // 注意：Air780ep 不支持 AT+CIPKEEPALIVE，网络 NAT 约 15 秒超时，10 秒间隔确保安全
+        // 应用层心跳：每 3 秒发一条真实的 MQTT PUBLISH 消息
+        // 原因：Air780ep 默认 CIPSTO=5s（不支持修改），TCP 空闲 5 秒后模块自动断开连接。
+        // 3 秒间隔确保在超时前有数据流动，重置模块内部的空闲计时器。
+        // 心跳比 PINGREQ（2 字节）更可靠——CIPSEND=61+ 字节不会被网络设备忽略。
         unsigned long nowMs = millis();
-        if (connected && nowMs - lastHeartbeatTime >= 10000) {
+        if (connected && nowMs - lastHeartbeatTime >= 3000) {
             lastHeartbeatTime = nowMs;
             String topic = topicResp;  // 使用 resp 主题
             String payload = "{\"type\":\"heartbeat\",\"t\":" + String(nowMs) + "}";

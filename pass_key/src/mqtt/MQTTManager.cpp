@@ -84,10 +84,10 @@ bool MQTTManager::init(const char *clientId, const char *broker, uint16_t port, 
     gMqttManagerInstance = this;
 
     // 创建跨核消息队列（Core 0 → Core 1）
-    msgQueue = xQueueCreate(8, sizeof(PendingMsg));
+    msgQueue = xQueueCreate(16, sizeof(PendingMsg));
 
     // 创建出站消息队列（Core 1 → Core 0，mqttManager.publish() 的异步通道）
-    outMsgQueue = xQueueCreate(4, sizeof(OutgoingMsg));
+    outMsgQueue = xQueueCreate(8, sizeof(OutgoingMsg));
 
     initialized = true;
 
@@ -345,7 +345,9 @@ void MQTTManager::mqttCallback(char *topic, uint8_t *payload, unsigned int lengt
     memcpy(msg.payload, payload, copyLen);
     msg.length = copyLen;
 
-    xQueueSend(gMqttManagerInstance->msgQueue, &msg, 0);
+    if (xQueueSend(gMqttManagerInstance->msgQueue, &msg, 0) != pdTRUE) {
+        Serial.println("[MQTT] 入站消息队列满，消息丢弃！");
+    }
 }
 
 bool MQTTManager::attemptReconnect()

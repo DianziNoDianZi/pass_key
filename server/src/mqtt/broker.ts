@@ -82,6 +82,12 @@ const broker = new Aedes(options);
 const clientConnectTimes = new Map<string, number>();
 
 // ===== 诊断事件监听 =====
+broker.on('connectionError', (client: Client | null, err: Error) => {
+  console.log(`[MQTT Broker] Connection error: client=${client?.id || 'unknown'}, ${err.message}`);
+});
+broker.on('closed', () => {
+  // Aedes 引擎关闭
+});
 broker.on('client', (client: Client) => {
   console.log(`[MQTT Broker] Client connected: ${client.id}`);
   clientConnectTimes.set(client.id, Date.now());
@@ -93,6 +99,15 @@ broker.on('client', (client: Client) => {
     const conn = (client as any).conn;
     if (conn && typeof conn.setKeepAlive === 'function') {
       conn.setKeepAlive(true);
+    }
+    // 监听底层 socket 的 close 和 error 事件，捕获断开原因
+    if (conn) {
+      conn.on('close', (hadError: boolean) => {
+        console.log(`[MQTT Broker] Socket closed for ${client.id}, hadError=${hadError}`);
+      });
+      conn.on('error', (err: Error) => {
+        console.log(`[MQTT Broker] Socket error for ${client.id}: ${err.message}`);
+      });
     }
   } catch (err) {
     // setKeepAlive 不是关键功能，失败不影响运行

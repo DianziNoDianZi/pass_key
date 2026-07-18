@@ -84,9 +84,6 @@ broker.on('publish', (packet: PublishPacket, client: Client | null) => {
     console.log(`[MQTT Broker] Publish from=${client?.id || '(server)'} topic=${packet.topic} len=${packet.payload?.length || 0}`);
   }
 });
-broker.on('subscribe', (subscription: Subscription, client: Client) => {
-  console.log(`[MQTT Broker] Subscribe from=${client.id} topic=${subscription.topic}`);
-});
 // =========================
 
 function escapeRegex(str: string): string {

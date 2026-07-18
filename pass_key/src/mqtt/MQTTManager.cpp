@@ -278,15 +278,19 @@ void MQTTManager::loop()
         if (!mqttClient->loop()) {
             // PubSubClient::loop() 返回 false 表示连接断开
             connected = false;
+            // 重置 PubSubClient 内部 _state，否则下次 connect() 可能误判为"已连接"
+            // 直接跳过 MQTT CONNECT 包的发送。
+            mqttClient->disconnect();
             Serial.println("[MQTT] 连接丢失");
         }
 
-        // 应用层心跳：每 3 秒发一条真实的 MQTT PUBLISH 消息
+        // 应用层心跳：每 2 秒发一条真实的 MQTT PUBLISH 消息
         // 原因：Air780ep 默认 CIPSTO=5s（不支持修改），TCP 空闲 5 秒后模块自动断开连接。
-        // 3 秒间隔确保在超时前有数据流动，重置模块内部的空闲计时器。
+        // 2 秒间隔确保在超时前有足够余量，且第一次心跳在连接后 2 秒
+        // （CIPSTART 后 1.5s + 2s = 3.5s，远早于 5s 超时）。
         // 心跳比 PINGREQ（2 字节）更可靠——CIPSEND=61+ 字节不会被网络设备忽略。
         unsigned long nowMs = millis();
-        if (connected && nowMs - lastHeartbeatTime >= 3000) {
+        if (connected && nowMs - lastHeartbeatTime >= 2000) {
             lastHeartbeatTime = nowMs;
             String topic = topicResp;  // 使用 resp 主题
             String payload = "{\"type\":\"heartbeat\",\"t\":" + String(nowMs) + "}";
@@ -465,6 +469,12 @@ bool MQTTManager::attemptReconnect()
     if (mqttOk) {
         gprsFailCount = 0;
         lastHeartbeatTime = millis();   // 重置心跳定时器
+
+        // 刷新 UART 缓冲区：清除 CONNACK 交换期间可能到达的 CLOSED/URC
+        // Air780ep 在收到 TCP 数据后可能立即发送 URC 通知（如 CLOSED），
+        // 如果不清除，下次 loop() 中 available() 会读到而误判连接断开。
+        driver->flushUART();
+
         // 重新订阅命令主题
         mqttClient->subscribe(topicCmd.c_str(), 1);
         Serial.printf("[MQTT] 已订阅 %s\n", topicCmd.c_str());

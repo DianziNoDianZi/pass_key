@@ -94,7 +94,7 @@ bool ButtonManager::init()
     for (int i = 0; i < 3; i++) {
         cfg[i].pin_bit_mask = (1ULL << buttons[i].pin);
         cfg[i].mode = GPIO_MODE_INPUT;
-        cfg[i].pull_up_en = GPIO_PULLUP_ONLY;
+        cfg[i].pull_up_en = GPIO_PULLUP_ENABLE;
         cfg[i].pull_down_en = GPIO_PULLDOWN_DISABLE;
         cfg[i].intr_type = GPIO_INTR_DISABLE;
         gpio_config(&cfg[i]);

@@ -252,10 +252,12 @@ void setup()
         Serial.printf("[BTN] ShortPress pin=%d -> id=%d\n", pin, id);
     });
 
-    // 长按回调：返回主菜单 + 重置空闲计时器 + FIDO2 用户确认
+    // 长按回调：返回上一级 + 重置空闲计时器 + FIDO2 用户确认
     buttonManager.addLongPressCallback([](uint8_t pin) {
         if (pin == BTN_CONFIRM) {
-            Serial.println(F("[BTN] LongPress CONFIRM -> 返回主菜单"));
+            Serial.println(F("[BTN] LongPress CONFIRM -> 返回上一级"));
+            // 弹出当前屏幕回到上一级（主菜单不会被弹出）
+            displayManager.popScreen();
             fido2Manager.confirmUserPresence(true);
         } else if (pin == BTN_DOWN) {
             fido2Manager.confirmUserPresence(true);

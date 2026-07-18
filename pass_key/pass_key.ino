@@ -448,7 +448,7 @@ void setup()
     xTaskCreatePinnedToCore(
         mqttCore0Task,      // 任务函数
         "mqtt_core0",       // 任务名
-        8192,               // 栈大小（字节）
+        16384,              // 栈大小（字节）— 8K 不够，PubSubClient 回调+PendingMsg+AT 命令栈深
         &mqttManager,       // 参数（MQTTManager 实例）
         1,                  // 优先级
         NULL,               // 任务句柄（不需要）

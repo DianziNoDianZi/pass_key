@@ -96,6 +96,16 @@ broker.on('client', (client: Client) => {
   } catch (err) {
     // setKeepAlive 不是关键功能，失败不影响运行
   }
+
+  // 禁用 Aedes 内置的 MQTT keepalive 超时检查
+  // 原因：设备 CONNECT 包中 keepalive=10，Aedes 会用 10×1.5=15 秒超时踢人
+  // 但设备的 TCP 层走移动蜂窝 NAT，MQTT 心跳可能延迟到达导致被误踢。
+  // 我们改用 TCP keepalive（上面启用）+ 心跳 PUBLISH 双重保活，无需 MQTT keepalive 再踢一次。
+  try {
+    (client as any).keepalive = 0;
+  } catch (err) {
+    // keepalive 覆盖失败不影响运行
+  }
 });
 broker.on('clientDisconnect', (client: Client) => {
   // 计算连接时长

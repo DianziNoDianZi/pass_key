@@ -13,12 +13,25 @@
 #include <vector>
 #include "Screen.h"
 
-// ==================== 颜色定义 ====================
-#define PASSKEY_BLUE   0x5D6B
-#define PASSKEY_DARK   0x1082
-#define PASSKEY_WHITE  0xFFFF
-#define PASSKEY_RED    0xF800
-#define PASSKEY_GREEN  0x07E0
+// ==================== 颜色定义（Apple 风格） ====================
+#define PASSKEY_WHITE    0xFFFF
+#define PASSKEY_BLACK    0x0000
+#define APPLE_BLUE       0x03DF   // RGB(0, 122, 255)
+#define APPLE_RED        0xF800   // RGB(255, 0, 0)
+#define APPLE_GREEN      0x07E1   // RGB(52, 199, 89)
+#define APPLE_ORANGE     0xFD20   // RGB(255, 159, 10)
+#define APPLE_GRAY       0x5AEB   // RGB(142, 142, 147)
+#define APPLE_GRAY2      0x39A7   // RGB(99, 99, 102)
+#define APPLE_GRAY3      0x2108   // RGB(58, 58, 60)
+#define APPLE_GRAY4      0x1082   // RGB(44, 44, 46)
+#define APPLE_GRAY5      0x0841   // RGB(28, 28, 30)
+#define APPLE_SEP        0x2124   // RGB(56, 56, 58) 分隔线
+#define APPLE_BG         TFT_BLACK
+
+// 保留旧名兼容
+#define PASSKEY_BLUE     APPLE_BLUE
+#define PASSKEY_DARK     APPLE_GRAY4
+#define PASSKEY_GREEN    APPLE_GREEN
 
 class DisplayManager
 {

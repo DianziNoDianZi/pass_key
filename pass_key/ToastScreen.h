@@ -18,14 +18,14 @@ public:
      * @param display  DisplayManager 指针（用于 popScreen）
      * @param message  要显示的消息文本
      * @param duration 自动关闭时间（毫秒，默认 2000）
-     * @param bgColor  背景色（默认 TFT_BLACK）
-     * @param fgColor  文字色（默认 PASSKEY_GREEN）
+     * @param bgColor  背景色（默认 APPLE_BG）
+     * @param fgColor  文字色（默认 APPLE_GREEN）
      */
     ToastScreen(DisplayManager *display,
                 const String &message,
                 uint32_t duration = 2000,
-                uint16_t bgColor = TFT_BLACK,
-                uint16_t fgColor = PASSKEY_GREEN);
+                uint16_t bgColor = APPLE_BG,
+                uint16_t fgColor = APPLE_GREEN);
     virtual ~ToastScreen();
 
     virtual const char *getName() const override { return "Toast"; }
@@ -41,8 +41,6 @@ private:
     uint16_t bg, fg;
     uint32_t startTime;
     bool closeRequested;
-
-    void drawCenteredText(TFT_eSPI &tft, const char *text, int y, uint16_t color);
 };
 
 #endif // TOAST_SCREEN_H

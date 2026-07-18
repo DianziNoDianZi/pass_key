@@ -64,7 +64,7 @@ private:
     static const int STATUS_HEIGHT = 16;
     static const int LIST_TITLE_HEIGHT = 24;
     static const int LIST_LINE_HEIGHT = 24;
-    static const int VISIBLE_LINES = 8;
+    static const int VISIBLE_LINES = 7;
 
     // ==================== 超时配置 ====================
     static const uint32_t LIST_TIMEOUT_MS  = 30000;  // 列表视图 30 秒超时

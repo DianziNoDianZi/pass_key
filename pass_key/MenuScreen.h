@@ -30,7 +30,7 @@ public:
     virtual void onDraw(TFT_eSPI &tft) override;
 
 private:
-    static const int VISIBLE_LINES  = 8;
+    static const int VISIBLE_LINES  = 7;
     static const int TITLE_HEIGHT   = 24;
     static const int LINE_HEIGHT    = 20;
     static const int STATUS_HEIGHT  = 16;

@@ -87,7 +87,7 @@ void MenuScreen::onUpdate()
 
 void MenuScreen::onDraw(TFT_eSPI &tft)
 {
-    tft.fillScreen(TFT_BLACK);
+    tft.fillScreen(APPLE_BG);
     drawTitle(tft);
     drawItems(tft);
     drawPageIndicator(tft);
@@ -95,36 +95,49 @@ void MenuScreen::onDraw(TFT_eSPI &tft)
 
 void MenuScreen::drawTitle(TFT_eSPI &tft)
 {
-    int y = STATUS_HEIGHT;
-    tft.fillRect(0, y, TFT_WIDTH, TITLE_HEIGHT, PASSKEY_BLUE);
-    tft.setTextColor(PASSKEY_WHITE, PASSKEY_BLUE);
-    tft.setTextSize(2);
-    tft.setCursor((TFT_WIDTH - tft.textWidth(title)) / 2, y + 4);
+    // iOS 分段标题：灰色小字，左对齐
+    tft.setTextColor(APPLE_GRAY, APPLE_BG);
+    tft.setTextSize(1);
+    tft.setCursor(16, 22);
     tft.print(title);
 }
 
 void MenuScreen::drawItems(TFT_eSPI &tft)
 {
-    int startY  = STATUS_HEIGHT + TITLE_HEIGHT;
-    tft.setTextSize(2);
+    int rowH = 28;
+    int startY = 32;
 
     for (int i = 0; i < VISIBLE_LINES; i++) {
         int idx = i + scrollOffset;
         if (idx >= (int)items.size()) break;
 
-        int y = startY + i * LINE_HEIGHT;
+        int y = startY + i * rowH;
 
-        // 绘制圆点指示器：选中=实心，未选中=空心
+        // 选中行：蓝色背景高亮
         if (idx == selectedIndex) {
-            tft.fillCircle(10, y + LINE_HEIGHT / 2, 3, PASSKEY_BLUE);
-            tft.setTextColor(PASSKEY_BLUE, TFT_BLACK);
+            tft.fillRect(0, y, TFT_WIDTH, rowH, APPLE_BLUE);
+            tft.setTextColor(PASSKEY_WHITE, APPLE_BLUE);
         } else {
-            tft.drawCircle(10, y + LINE_HEIGHT / 2, 3, PASSKEY_WHITE);
-            tft.setTextColor(PASSKEY_WHITE, TFT_BLACK);
+            tft.setTextColor(PASSKEY_WHITE, APPLE_BG);
         }
 
-        tft.setCursor(20, y + 2);
+        // 项目名称
+        tft.setTextSize(2);
+        tft.setCursor(16, y + (rowH - 16) / 2);
         tft.print(items[idx]);
+
+        // 右侧 chevron ">"
+        if (idx != selectedIndex) {
+            tft.setTextColor(APPLE_GRAY3, APPLE_BG);
+            tft.setTextSize(1);
+            tft.setCursor(TFT_WIDTH - 20, y + (rowH - 8) / 2);
+            tft.print(">");
+        }
+
+        // 分隔线（选中行不需要）
+        if (idx != selectedIndex && idx < (int)items.size() - 1) {
+            tft.drawLine(16, y + rowH - 1, TFT_WIDTH - 16, y + rowH - 1, APPLE_SEP);
+        }
     }
 }
 
@@ -133,13 +146,14 @@ void MenuScreen::drawPageIndicator(TFT_eSPI &tft)
     if (items.empty()) return;
 
     int totalPages  = (items.size() + VISIBLE_LINES - 1) / VISIBLE_LINES;
-    int currentPage = scrollOffset / VISIBLE_LINES + 1;
+    if (totalPages <= 1) return;
 
-    tft.setTextColor(PASSKEY_WHITE, TFT_BLACK);
-    tft.setTextSize(1);
+    int currentPage = scrollOffset / VISIBLE_LINES + 1;
 
     char pageStr[8];
     snprintf(pageStr, sizeof(pageStr), "%d/%d", currentPage, totalPages);
-    tft.setCursor(TFT_WIDTH - 30, TFT_HEIGHT - 14);
+    tft.setTextColor(APPLE_GRAY, APPLE_BG);
+    tft.setTextSize(1);
+    tft.setCursor(TFT_WIDTH - 36, TFT_HEIGHT - 12);
     tft.print(pageStr);
 }

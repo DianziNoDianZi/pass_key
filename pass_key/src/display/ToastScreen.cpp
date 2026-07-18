@@ -47,43 +47,34 @@ void ToastScreen::onUpdate()
 
 void ToastScreen::onDraw(TFT_eSPI &tft)
 {
-    tft.fillScreen(bg);
+    tft.fillScreen(APPLE_BG);
 
-    // 标题行
-    tft.fillRect(0, 0, TFT_WIDTH, 20, PASSKEY_DARK);
-    tft.setTextColor(PASSKEY_WHITE, PASSKEY_DARK);
-    tft.setTextSize(1);
-    tft.setCursor(8, 5);
-    tft.print("PassKey");
+    // iOS 通知横幅 — 顶部卡片（圆角，浅灰背景）
+    int bannerX = 10;
+    int bannerY = 22;
+    int bannerW = TFT_WIDTH - 20;
+    int bannerH = 80;
+    tft.fillRoundRect(bannerX, bannerY, bannerW, bannerH, 12, APPLE_GRAY5);
+    tft.drawRoundRect(bannerX, bannerY, bannerW, bannerH, 12, APPLE_GRAY3);
 
-    // 图标：使用大字体的勾号
-    int iconY = 50;
-    tft.setTextColor(fg, bg);
-    tft.setTextSize(6);
-    int iconW = tft.textWidth("V");
-    tft.setCursor((TFT_WIDTH - iconW) / 2, iconY);
-    tft.print("V");
+    // 状态图标（左侧小圆点）
+    tft.fillCircle(bannerX + 20, bannerY + bannerH / 2, 4, fg);
 
-    // 消息文本（居中，自适应字号）
-    int msgY = 110;
-    tft.setTextColor(PASSKEY_WHITE, bg);
-    int fontSize = 2;
-    tft.setTextSize(fontSize);
+    // 消息文本（图标右侧，居中垂直）
+    tft.setTextColor(PASSKEY_WHITE, APPLE_GRAY5);
+    tft.setTextSize(2);
     int textW = tft.textWidth(msg.c_str());
-    while (fontSize > 1 && textW > TFT_WIDTH - 20) {
-        fontSize--;
-        tft.setTextSize(fontSize);
+    if (textW > bannerW - 50) {
+        tft.setTextSize(1);
         textW = tft.textWidth(msg.c_str());
     }
-    int charH = fontSize * 8;
-    tft.setCursor((TFT_WIDTH - textW) / 2, msgY);
+    tft.setCursor(bannerX + 34, bannerY + (bannerH - 16) / 2);
     tft.print(msg);
 
     // 底部提示
-    tft.setTextColor(0x5AEB, bg);  // 灰色
+    tft.setTextColor(APPLE_GRAY, APPLE_BG);
     tft.setTextSize(1);
-    const char *hint = "按任意键关闭";
-    int hintW = tft.textWidth(hint);
-    tft.setCursor((TFT_WIDTH - hintW) / 2, 200);
+    const char *hint = "Press any key";
+    tft.setCursor((TFT_WIDTH - tft.textWidth(hint)) / 2, TFT_HEIGHT - 14);
     tft.print(hint);
 }

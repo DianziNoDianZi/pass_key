@@ -178,153 +178,143 @@ void TOTPScreen::onDraw(TFT_eSPI &tft)
     }
 }
 
-// ==================== 列表视图 ====================
+// ==================== 列表视图（iOS 风格） ====================
 
 void TOTPScreen::drawListView(TFT_eSPI &tft)
 {
-    tft.fillScreen(TFT_BLACK);
+    tft.fillScreen(APPLE_BG);
 
     int count = totpManager.getAccountCount();
 
-    // 标题栏
-    int titleY = STATUS_HEIGHT;
-    tft.fillRect(0, titleY, TFT_WIDTH, LIST_TITLE_HEIGHT, PASSKEY_BLUE);
-    tft.setTextColor(PASSKEY_WHITE, PASSKEY_BLUE);
-    tft.setTextSize(2);
-    const char *title = "TOTP 代码";
-    tft.setCursor((TFT_WIDTH - tft.textWidth(title)) / 2, titleY + 4);
-    tft.print(title);
+    // iOS 分段标题
+    tft.setTextColor(APPLE_GRAY, APPLE_BG);
+    tft.setTextSize(1);
+    tft.setCursor(16, 22);
+    tft.print("TOTP CODES");
 
-    // 列表项
-    int startY = STATUS_HEIGHT + LIST_TITLE_HEIGHT;
+    // 列表项（iOS 表格风格）
+    int rowH = 28;
+    int startY = 32;
     tft.setTextSize(2);
 
     for (int i = 0; i < VISIBLE_LINES && i < count; i++) {
-        int y = startY + i * LIST_LINE_HEIGHT;
+        int y = startY + i * rowH;
         String name = totpManager.getAccountName(i);
 
-        // 选中指示器
+        // 选中行蓝色高亮
         if (i == selectedIndex) {
-            tft.fillCircle(10, y + LIST_LINE_HEIGHT / 2, 3, PASSKEY_BLUE);
-            tft.setTextColor(PASSKEY_BLUE, TFT_BLACK);
+            tft.fillRect(0, y, TFT_WIDTH, rowH, APPLE_BLUE);
+            tft.setTextColor(PASSKEY_WHITE, APPLE_BLUE);
         } else {
-            tft.drawCircle(10, y + LIST_LINE_HEIGHT / 2, 3, PASSKEY_WHITE);
-            tft.setTextColor(PASSKEY_WHITE, TFT_BLACK);
+            tft.setTextColor(PASSKEY_WHITE, APPLE_BG);
         }
 
-        tft.setCursor(20, y + 2);
+        tft.setCursor(16, y + (rowH - 16) / 2);
         tft.print(name.c_str());
+
+        // 右侧 chevron ">"
+        if (i != selectedIndex) {
+            tft.setTextColor(APPLE_GRAY3, APPLE_BG);
+            tft.setTextSize(1);
+            tft.setCursor(TFT_WIDTH - 20, y + (rowH - 8) / 2);
+            tft.print(">");
+        }
+
+        // 分隔线（选中行不需要）
+        if (i != selectedIndex && i < count - 1) {
+            tft.drawLine(16, y + rowH - 1, TFT_WIDTH - 16, y + rowH - 1, APPLE_SEP);
+        }
     }
 
     // 页码指示
     if (count > VISIBLE_LINES) {
         int totalPages  = (count + VISIBLE_LINES - 1) / VISIBLE_LINES;
-        int currentPage = 1; // 简化：当前仅显示第一页
-        tft.setTextColor(PASSKEY_WHITE, TFT_BLACK);
+        tft.setTextColor(APPLE_GRAY, APPLE_BG);
         tft.setTextSize(1);
         char pageStr[8];
-        snprintf(pageStr, sizeof(pageStr), "%d/%d", currentPage, totalPages);
-        tft.setCursor(TFT_WIDTH - 30, TFT_HEIGHT - 14);
+        snprintf(pageStr, sizeof(pageStr), "%d/%d", 1, totalPages);
+        tft.setCursor(TFT_WIDTH - 36, TFT_HEIGHT - 12);
         tft.print(pageStr);
     }
 }
 
-// ==================== 验证码详情视图 ====================
+// ==================== 验证码详情视图（iOS 风格） ====================
 
 void TOTPScreen::drawCodeView(TFT_eSPI &tft)
 {
-    tft.fillScreen(TFT_BLACK);
+    tft.fillScreen(APPLE_BG);
 
     if (selectedIndex < 0 || selectedIndex >= totpManager.getAccountCount()) {
-        tft.setTextColor(TFT_RED, TFT_BLACK);
+        tft.setTextColor(APPLE_RED, APPLE_BG);
         tft.setTextSize(2);
         tft.setCursor(20, TFT_HEIGHT / 2 - 10);
-        tft.print("无账户");
+        tft.print("No Accounts");
         return;
     }
 
     String accountName = totpManager.getAccountName(selectedIndex);
     uint32_t remaining = totpManager.getRemainingSeconds();
 
-    // 1. 账户名称（大字体，顶部居中）
-    int nameY = STATUS_HEIGHT + 10;
-    tft.setTextColor(PASSKEY_WHITE, TFT_BLACK);
-    tft.setTextSize(2);
-    tft.setCursor((TFT_WIDTH - tft.textWidth(accountName.c_str())) / 2, nameY);
-    tft.print(accountName.c_str());
+    // 1. 账户名称（灰色小字，类似 iOS 锁屏上的应用名称）
+    tft.setTextColor(APPLE_GRAY, APPLE_BG);
+    tft.setTextSize(1);
+    tft.setCursor((TFT_WIDTH - tft.textWidth(accountName.c_str())) / 2, 30);
+    tft.print(accountName);
 
-    // 2. 6 位验证码（超大字体，屏幕中央）
-    int codeY = TFT_HEIGHT / 2 - 30;
-    tft.setTextColor(PASSKEY_BLUE, TFT_BLACK);
-    tft.setTextSize(5);
+    // 2. 6 位验证码（超大粗体，屏幕中央，白色）
+    int codeY = TFT_HEIGHT / 2 - 35;
+    tft.setTextColor(PASSKEY_WHITE, APPLE_BG);
+    tft.setTextSize(6);
     int codeW = tft.textWidth(currentCode.c_str());
+    if (codeW > TFT_WIDTH - 20) {
+        tft.setTextSize(5);
+        codeW = tft.textWidth(currentCode.c_str());
+    }
     tft.setCursor((TFT_WIDTH - codeW) / 2, codeY);
     tft.print(currentCode.c_str());
 
-    // 3. 剩余秒数（小字体，码下方）
-    int secY = codeY + 50;
-    tft.setTextColor(PASSKEY_WHITE, TFT_BLACK);
-    tft.setTextSize(2);
-    char secStr[16];
+    // 3. 剩余秒数（彩色大号）
+    int secY = codeY + 56;
+    tft.setTextSize(3);
+    char secStr[8];
     snprintf(secStr, sizeof(secStr), "%us", remaining);
+    uint16_t secColor = (remaining > 10) ? APPLE_GREEN : (remaining > 5) ? APPLE_ORANGE : APPLE_RED;
+    tft.setTextColor(secColor, APPLE_BG);
     tft.setCursor((TFT_WIDTH - tft.textWidth(secStr)) / 2, secY);
     tft.print(secStr);
 
-    // 4. 倒计时进度条
-    int barY = TFT_HEIGHT - 40;
-    int barW = 200;
-    int barH = 16;
+    // 4. 细进度条（iOS 风格, 圆角细条）
+    int barY = TFT_HEIGHT - 50;
+    int barW = TFT_WIDTH - 40;
+    int barH = 4;
     int barX = (TFT_WIDTH - barW) / 2;
     drawProgressBar(tft, barX, barY, barW, barH, remaining);
 }
 
-// ==================== 进度条 ====================
+// ==================== 进度条（iOS 细条风格） ====================
 
 void TOTPScreen::drawProgressBar(TFT_eSPI &tft, int x, int y, int w, int h,
                                   uint32_t remaining)
 {
-    // 背景
-    tft.fillRoundRect(x, y, w, h, 3, 0x2104);
-    // 边框
-    tft.drawRoundRect(x, y, w, h, 3, TFT_WHITE);
+    // 浅灰背景
+    tft.fillRoundRect(x, y, w, h, 2, APPLE_GRAY3);
 
-    // 填充宽度
+    // 填充
     float ratio = (float)remaining / TOTP_PERIOD;
     if (ratio < 0.0f) ratio = 0.0f;
     if (ratio > 1.0f) ratio = 1.0f;
-    int fillW = (int)((w - 2) * ratio);
+    int fillW = (int)(w * ratio);
 
     if (fillW > 0) {
         uint16_t color = getProgressColor(remaining);
-        tft.fillRoundRect(x + 1, y + 1, fillW, h - 2, 2, color);
+        tft.fillRoundRect(x, y, fillW, h, 2, color);
     }
-
-    // 百分比数字
-    tft.setTextColor(TFT_WHITE, 0x2104);
-    tft.setTextSize(1);
-    char pctStr[8];
-    snprintf(pctStr, sizeof(pctStr), "%d%%", (int)(ratio * 100));
-    tft.setCursor(x + w + 6, y + (h - 8) / 2);
-    tft.print(pctStr);
 }
 
 uint16_t TOTPScreen::getProgressColor(uint32_t remaining)
 {
-    // 剩余 >15 秒绿色，<10 秒黄色，<5 秒红色
-    if (remaining > 15) {
-        return PASSKEY_GREEN;   // 绿色
-    } else if (remaining > 5) {
-        // 5-10 秒：黄色；10-15 秒：绿→黄过渡
-        if (remaining > 10) {
-            // 10-15 秒：从绿渐变到黄
-            float t = (float)(remaining - 10) / 5.0f; // 10→1.0, 15→0.0
-            uint8_t r = (uint8_t)((1.0f - t) * 255.0f);
-            uint8_t g = 255;
-            return ((r >> 3) << 11) | ((g >> 2) << 5);
-        } else {
-            return 0xFFE0;  // 黄色 (RGB565)
-        }
-    } else {
-        return TFT_RED;     // 红色
-    }
+    if (remaining > 15) return APPLE_GREEN;
+    if (remaining > 10) return APPLE_GREEN;
+    if (remaining > 5)  return APPLE_ORANGE;
+    return APPLE_RED;
 }

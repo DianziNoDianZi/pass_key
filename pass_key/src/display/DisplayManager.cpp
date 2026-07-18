@@ -127,42 +127,34 @@ void DisplayManager::handleButtonPress(uint8_t button)
 
 void DisplayManager::showStatusBar()
 {
-    // 顶部状态栏，高度 16px，深色背景
-    tft.fillRect(0, 0, TFT_WIDTH, 16, PASSKEY_DARK);
-    tft.setTextColor(PASSKEY_WHITE, PASSKEY_DARK);
+    // iOS 风格状态栏 — 纯黑背景，仅显示连接指示和时间
+    tft.fillRect(0, 0, TFT_WIDTH, 16, APPLE_BG);
+
+    // 左侧连接指示：绿色圆点+ON / 红色圆点+OFF
     tft.setTextSize(1);
-
-    // WiFi 连接状态图标（占位符）
-    tft.setCursor(2, 4);
-    tft.print("W");
-
-    // 4G 连接状态：MQTT 已连接显示 "C"，否则显示 "4"
-    tft.setCursor(14, 4);
     if (mqttManager.isConnected()) {
-        tft.setTextColor(TFT_GREEN, PASSKEY_DARK);
-        tft.print("C");
-        tft.setTextColor(PASSKEY_WHITE, PASSKEY_DARK);
+        tft.fillCircle(8, 8, 3, APPLE_GREEN);
+        tft.setTextColor(APPLE_GREEN, APPLE_BG);
+        tft.setCursor(14, 4);
+        tft.print("ON");
     } else {
-        tft.setTextColor(TFT_RED, PASSKEY_DARK);
-        tft.print("4");
-        tft.setTextColor(PASSKEY_WHITE, PASSKEY_DARK);
+        tft.fillCircle(8, 8, 3, APPLE_RED);
+        tft.setTextColor(APPLE_GRAY, APPLE_BG);
+        tft.setCursor(14, 4);
+        tft.print("OFF");
     }
 
-    // 电池图标（占位符，暂无实际电量数据）
-    tft.setCursor(26, 4);
-    tft.print((char)3);
-
-    // 当前真实时间
+    // 右侧时间（iOS 风格，粗体居中）
     time_t now = timeManager.getUnixTime();
     if (now > 100000) {
-        // 时间已同步
         struct tm *ti = localtime(&now);
         char timeStr[6];
         snprintf(timeStr, sizeof(timeStr), "%02d:%02d", ti->tm_hour, ti->tm_min);
+        tft.setTextColor(PASSKEY_WHITE, APPLE_BG);
         tft.setCursor(TFT_WIDTH - 46, 4);
         tft.print(timeStr);
     } else {
-        // 时间未同步
+        tft.setTextColor(APPLE_GRAY, APPLE_BG);
         tft.setCursor(TFT_WIDTH - 46, 4);
         tft.print("--:--");
     }

@@ -137,142 +137,154 @@ void AuthScreen::onDraw(TFT_eSPI &tft)
     }
 }
 
-// ==================== 绘制函数 ====================
+// ==================== 绘制函数（iOS 弹窗卡片风格） ====================
 
 void AuthScreen::drawWaiting(TFT_eSPI &tft)
 {
-    tft.fillScreen(TFT_BLACK);
+    tft.fillScreen(APPLE_BG);
 
     int centerX = TFT_WIDTH / 2;
 
-    // 顶部图标区域
-    tft.fillCircle(centerX, 40, 18, PASSKEY_BLUE);
-    tft.setTextColor(PASSKEY_WHITE, PASSKEY_BLUE);
-    tft.setTextSize(2);
-    tft.setCursor(centerX - 6, 33);
-    tft.print("?");
+    // 卡片区域（带圆角的浅灰矩形）
+    int cardW   = 220;
+    int cardH   = 180;
+    int cardX   = (TFT_WIDTH - cardW) / 2;
+    int cardY   = 24;
+    tft.fillRoundRect(cardX, cardY, cardW, cardH, 12, APPLE_GRAY5);
+    tft.drawRoundRect(cardX, cardY, cardW, cardH, 12, APPLE_GRAY3);
 
-    // 网站名称（大字体）
-    tft.setTextColor(PASSKEY_WHITE, TFT_BLACK);
+    // 卡片标题
+    tft.setTextColor(PASSKEY_WHITE, APPLE_GRAY5);
+    tft.setTextSize(2);
+    const char *title = "Login Request";
+    tft.setCursor((TFT_WIDTH - tft.textWidth(title)) / 2, cardY + 16);
+    tft.print(title);
+
+    // 网站名称（粗体，大号）
+    int webY = cardY + 48;
+    tft.setTextColor(PASSKEY_WHITE, APPLE_GRAY5);
     tft.setTextSize(2);
     int nameWidth = tft.textWidth(website.c_str());
-    if (nameWidth > TFT_WIDTH - 20) {
+    if (nameWidth > cardW - 20) {
         tft.setTextSize(1);
         nameWidth = tft.textWidth(website.c_str());
     }
-    tft.setCursor((TFT_WIDTH - nameWidth) / 2, 70);
+    tft.setCursor((TFT_WIDTH - nameWidth) / 2, webY);
     tft.print(website);
 
-    // 来源信息（中字体）
+    // 来源信息（灰色小字）
+    int srcY = webY + 24;
     tft.setTextSize(1);
-    tft.setTextColor(0xAD55, TFT_BLACK); // 灰色
+    tft.setTextColor(APPLE_GRAY, APPLE_GRAY5);
     int srcWidth = tft.textWidth(source.c_str());
-    tft.setCursor((TFT_WIDTH - srcWidth) / 2, 92);
+    tft.setCursor((TFT_WIDTH - srcWidth) / 2, srcY);
     tft.print(source);
 
     // 分隔线
-    tft.drawLine(20, 112, TFT_WIDTH - 20, 112, 0x4208);
+    int sepY = cardY + 132;
+    tft.drawLine(cardX + 2, sepY, cardX + cardW - 2, sepY, APPLE_SEP);
 
-    // 按钮区域
-    int btnY = 130;
-    int btnW = 80;
-    int btnH = 35;
-    int gap  = 14;
+    // 按钮：Deny / Allow
+    int btnY = sepY + 4;
+    int btnW = 100;
+    int btnH = 36;
+    int btnGap = 8;
+    int denyX = centerX - btnGap / 2 - btnW;
+    int allowX = centerX + btnGap / 2;
 
-    int confirmX = centerX - gap / 2 - btnW;
-    int denyX    = centerX + gap / 2;
-
-    // 确认按钮
-    if (selection == AUTH_SEL_CONFIRM) {
-        tft.fillRoundRect(confirmX, btnY, btnW, btnH, 6, PASSKEY_GREEN);
-        tft.setTextColor(TFT_WHITE, PASSKEY_GREEN);
-    } else {
-        tft.drawRoundRect(confirmX, btnY, btnW, btnH, 6, 0x4208);
-        tft.setTextColor(0xAD55, TFT_BLACK);
-    }
-    tft.setTextSize(2);
-    tft.setCursor(confirmX + 16, btnY + 9);
-    tft.print("OK");
-
-    // 拒绝按钮
+    // Deny 按钮
     if (selection == AUTH_SEL_DENY) {
-        tft.fillRoundRect(denyX, btnY, btnW, btnH, 6, TFT_RED);
-        tft.setTextColor(TFT_WHITE, TFT_RED);
+        tft.fillRoundRect(denyX, btnY, btnW, btnH, 8, APPLE_RED);
+        tft.setTextColor(PASSKEY_WHITE, APPLE_RED);
     } else {
-        tft.drawRoundRect(denyX, btnY, btnW, btnH, 6, 0x4208);
-        tft.setTextColor(0xAD55, TFT_BLACK);
+        tft.fillRoundRect(denyX, btnY, btnW, btnH, 8, APPLE_GRAY3);
+        tft.setTextColor(APPLE_GRAY, APPLE_GRAY3);
     }
     tft.setTextSize(2);
-    tft.setCursor(denyX + 8, btnY + 9);
-    tft.print("NO");
+    tft.setCursor(denyX + (btnW - tft.textWidth("Deny")) / 2, btnY + (btnH - 16) / 2);
+    tft.print("Deny");
 
-    // 底部倒计时
+    // Allow 按钮
+    if (selection == AUTH_SEL_CONFIRM) {
+        tft.fillRoundRect(allowX, btnY, btnW, btnH, 8, APPLE_BLUE);
+        tft.setTextColor(PASSKEY_WHITE, APPLE_BLUE);
+    } else {
+        tft.fillRoundRect(allowX, btnY, btnW, btnH, 8, APPLE_GRAY3);
+        tft.setTextColor(APPLE_GRAY, APPLE_GRAY3);
+    }
+    tft.setTextSize(2);
+    tft.setCursor(allowX + (btnW - tft.textWidth("Allow")) / 2, btnY + (btnH - 16) / 2);
+    tft.print("Allow");
+
+    // 倒计时
     unsigned long elapsed = (millis() - startTime) / 1000;
     int remaining = AUTH_TIMEOUT_SEC - (int)elapsed;
     if (remaining < 0) remaining = 0;
 
     tft.setTextSize(1);
-    tft.setTextColor(0xAD55, TFT_BLACK);
-    String countdown = "Remaining: " + String(remaining) + "s";
-    int cdWidth = tft.textWidth(countdown.c_str());
-    tft.setCursor((TFT_WIDTH - cdWidth) / 2, TFT_HEIGHT - 16);
-    tft.print(countdown);
+    tft.setTextColor(APPLE_GRAY, APPLE_GRAY3);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%ds  |  OK: Confirm", remaining);
+    tft.setCursor((TFT_WIDTH - tft.textWidth(buf)) / 2, TFT_HEIGHT - 10);
+    tft.print(buf);
 }
 
 void AuthScreen::drawSigning(TFT_eSPI &tft)
 {
-    tft.fillScreen(TFT_BLACK);
+    tft.fillScreen(APPLE_BG);
 
     int centerX = TFT_WIDTH / 2;
 
-    // 签名动画指示
-    tft.fillCircle(centerX, 60, 12, PASSKEY_BLUE);
-    tft.setTextColor(PASSKEY_WHITE, PASSKEY_BLUE);
-    tft.setTextSize(2);
-    tft.setCursor(centerX - 6, 53);
-    tft.print(".");
+    // 卡片
+    int cardW   = 200;
+    int cardH   = 120;
+    int cardX   = (TFT_WIDTH - cardW) / 2;
+    int cardY   = (TFT_HEIGHT - cardH) / 2;
+    tft.fillRoundRect(cardX, cardY, cardW, cardH, 12, APPLE_GRAY5);
+    tft.drawRoundRect(cardX, cardY, cardW, cardH, 12, APPLE_GRAY3);
 
-    // 签名中提示
-    tft.setTextColor(PASSKEY_WHITE, TFT_BLACK);
+    // 进度动画圆点
+    tft.fillCircle(centerX, cardY + 36, 6, APPLE_ORANGE);
+
+    // 提示文字
+    tft.setTextColor(PASSKEY_WHITE, APPLE_GRAY5);
     tft.setTextSize(2);
     const char *signMsg = "Signing...";
-    tft.setCursor((TFT_WIDTH - tft.textWidth(signMsg)) / 2, 90);
+    tft.setCursor((TFT_WIDTH - tft.textWidth(signMsg)) / 2, cardY + 60);
     tft.print(signMsg);
 
-    // 小型进度指示
     tft.setTextSize(1);
+    tft.setTextColor(APPLE_GRAY, APPLE_GRAY5);
     const char *waitMsg = "Please wait";
-    tft.setCursor((TFT_WIDTH - tft.textWidth(waitMsg)) / 2, 120);
-    tft.setTextColor(0xAD55, TFT_BLACK);
+    tft.setCursor((TFT_WIDTH - tft.textWidth(waitMsg)) / 2, cardY + 82);
     tft.print(waitMsg);
 }
 
 void AuthScreen::drawStatus(TFT_eSPI &tft, const char *icon,
                              const char *message, uint16_t color)
 {
-    tft.fillScreen(TFT_BLACK);
+    tft.fillScreen(APPLE_BG);
 
     int centerX = TFT_WIDTH / 2;
 
-    // 图标
-    tft.fillCircle(centerX, 55, 20, color);
-    tft.setTextColor(TFT_WHITE, color);
-    tft.setTextSize(3);
-    tft.setCursor(centerX - 10, 46);
+    // 大号状态图标
+    tft.setTextColor(color, APPLE_BG);
+    tft.setTextSize(6);
+    tft.setCursor(centerX - 24, 50);
     tft.print(icon);
 
     // 状态消息
-    tft.setTextColor(color, TFT_BLACK);
+    tft.setTextColor(color, APPLE_BG);
     tft.setTextSize(2);
     int msgWidth = tft.textWidth(message);
-    tft.setCursor((TFT_WIDTH - msgWidth) / 2, 100);
+    tft.setCursor((TFT_WIDTH - msgWidth) / 2, 115);
     tft.print(message);
 
-    // 小提示
-    tft.setTextColor(0xAD55, TFT_BLACK);
+    // 底部提示
+    tft.setTextColor(APPLE_GRAY, APPLE_BG);
     tft.setTextSize(1);
-    const char *hint = "Press any key to continue";
-    tft.setCursor((TFT_WIDTH - tft.textWidth(hint)) / 2, TFT_HEIGHT - 16);
+    const char *hint = "Press any key";
+    tft.setCursor((TFT_WIDTH - tft.textWidth(hint)) / 2, TFT_HEIGHT - 14);
     tft.print(hint);
 }
 

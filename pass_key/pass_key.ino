@@ -286,11 +286,11 @@ void setup()
 
         if (strcmp(type, "auth_request") == 0) {
             // 提取字段
-            const char *reqId     = doc["request_id"].as<const char *>();
+            const char *reqId     = doc["requestId"].as<const char *>();
             const char *website   = doc["website"].as<const char *>();
             const char *source    = doc["source"].as<const char *>();
             const char *challenge = doc["challenge"].as<const char *>();
-            uint32_t expiresAt    = doc["expires_at"] | 0;
+            uint32_t expiresAt    = doc["expiresAt"] | 0;
 
             if (!reqId || !website || !source || !challenge) {
                 Serial.println("[MQTT] auth_request 字段不完整");

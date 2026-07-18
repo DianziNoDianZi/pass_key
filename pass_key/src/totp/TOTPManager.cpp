@@ -185,6 +185,16 @@ int TOTPManager::syncFromServer(const char *jsonArray)
     return accounts.size();
 }
 
+void TOTPManager::dumpAccounts()
+{
+    Serial.printf("[TOTP] 当前账户列表 (%d): ", accounts.size());
+    for (size_t i = 0; i < accounts.size(); i++) {
+        if (i > 0) Serial.print(", ");
+        Serial.printf("%s(%s)", accounts[i].name.c_str(), accounts[i].base32Secret.substring(0, 6).c_str());
+    }
+    Serial.println();
+}
+
 int TOTPManager::getAccountCount()
 {
     return (int)accounts.size();

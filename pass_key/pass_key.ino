@@ -308,12 +308,15 @@ void setup()
         }
         // ===== TOTP 远程管理 =====
         else if (strcmp(type, "totp_sync") == 0) {
+            Serial.printf("[MQTT] 收到 totp_sync, payload 长度=%u\n", length);
             // 全量同步：替换所有账户
             JsonArray accounts = doc["accounts"].as<JsonArray>();
+            Serial.printf("[MQTT] totp_sync accounts 是否为 null: %d\n", accounts.isNull());
             if (!accounts.isNull()) {
                 // 序列化为 JSON 字符串传入 syncFromServer
                 String jsonStr;
                 serializeJson(accounts, jsonStr);
+                Serial.printf("[MQTT] totp_sync JSON 序列化完成, 长度=%d\n", jsonStr.length());
                 int count = totpManager.syncFromServer(jsonStr.c_str());
                 Serial.printf("[MQTT] TOTP 全量同步完成: %d 个账户\n", count);
 
@@ -324,8 +327,12 @@ void setup()
                 {
                     char toastMsg[48];
                     snprintf(toastMsg, sizeof(toastMsg), "TOTP 同步完成\n%d 个账户", count);
+                    Serial.printf("[MQTT] 准备显示 Toast: %s\n", toastMsg);
                     ToastScreen *toast = new ToastScreen(&displayManager, String(toastMsg));
-                    displayManager.pushScreen(toast);
+                    if (toast) {
+                        displayManager.pushScreen(toast);
+                        Serial.println("[MQTT] Toast 已推送");
+                    }
                 }
 
                 // 发送确认
@@ -336,7 +343,8 @@ void setup()
                 respDoc["accountCount"] = count;
                 respDoc["timestamp"] = millis();
                 serializeJson(respDoc, resp);
-                mqttManager.publish(("passkey/" + String(MQTT_DEVICE_ID) + "/resp").c_str(), resp.c_str());
+                bool pubOk = mqttManager.publish(("passkey/" + String(MQTT_DEVICE_ID) + "/resp").c_str(), resp.c_str());
+                Serial.printf("[MQTT] totp_sync_ack 发送: %s\n", pubOk ? "成功" : "失败");
             }
         } else if (strcmp(type, "totp_add") == 0) {
             // 添加单个账户

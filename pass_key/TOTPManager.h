@@ -70,6 +70,11 @@ public:
     int getAccountCount();
 
     /**
+     * @brief 调试：打印所有账户信息到串口
+     */
+    void dumpAccounts();
+
+    /**
      * @brief 获取第 index 个账户的名称
      * @param index 索引（从 0 开始）
      * @return 账户名称，为空表示索引无效

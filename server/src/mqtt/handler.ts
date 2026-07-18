@@ -208,6 +208,9 @@ function handleDeviceRegister(topic: string, message: { publicKey?: string }): v
     } else {
       console.log(`[MQTT Handler] Device ${deviceId} already has this public key, skipping`);
     }
+
+    // 确认设备已注册成功且已订阅，再推 TOTP 同步
+    sendTotpSync(deviceId);
   } else {
     console.warn(`[MQTT Handler] Device ${deviceId} not found in database. Add device via admin panel first.`);
   }

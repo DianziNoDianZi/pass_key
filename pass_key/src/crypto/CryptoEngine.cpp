@@ -380,13 +380,23 @@ bool CryptoEngine::loadKeys()
                                                     mbedtls_ctr_drbg_random, &ctrDrbg);
                     if (ret == 0) {
                         ecdsaReady = true;
+                        Serial.printf("[Crypto] ECDSA 密钥对已从 NVS 加载 (%u 字节)\n",
+                                      (unsigned int)privLen);
                     } else {
                         Serial.printf("[Crypto] ECDSA 私钥解析失败: ret=%d\n", ret);
                     }
+                } else {
+                    Serial.println("[Crypto] ECDSA 私钥读取失败");
                 }
                 free(privBuf);
+            } else {
+                Serial.println("[Crypto] ECDSA 私钥分配内存失败");
             }
+        } else {
+            Serial.println("[Crypto] ECDSA 私钥长度为 0");
         }
+    } else {
+        Serial.println("[Crypto] NVS 中无 ECDSA 私钥，需生成新密钥对");
     }
 
     if (!ecdsaReady) {
@@ -434,8 +444,20 @@ bool CryptoEngine::saveECDSAKeyPair()
     uint8_t *pubStart = pubBuf + sizeof(pubBuf) - pubLen;
 
     if (!secureStorage.save(NVS_KEY_ECDSA_PUB, pubStart, pubLen)) {
+        Serial.println("[Crypto] ECDSA 公钥保存失败");
         return false;
     }
 
+    // 验证：保存后立即读回，确认可加载
+    if (!ecdsaReady) return false;
+    size_t verifyLen = 0;
+    if (!secureStorage.load(NVS_KEY_ECDSA_PRIV, NULL, verifyLen) || verifyLen != privLen) {
+        Serial.printf("[Crypto] WARN: 私钥验证不一致 (saved=%u, loaded=%u)\n",
+                      (unsigned int)privLen, (unsigned int)verifyLen);
+        // 不阻断，只是诊断信息
+    }
+
+    Serial.printf("[Crypto] ECDSA 密钥对已保存: 私钥=%uB, 公钥=%uB\n",
+                  (unsigned int)privLen, (unsigned int)pubLen);
     return true;
 }

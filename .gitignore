@@ -1,6 +1,7 @@
 server/node_modules/
 server/dist/
 server/data/
+.npm-cache/
 *.db
 __pycache__/
 .venv/

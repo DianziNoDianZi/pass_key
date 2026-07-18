@@ -45,6 +45,7 @@ router.post('/challenge', (req: Request, res: Response) => {
       website,
       source: source || undefined,
       challenge,
+      expiresAt,
       timestamp: Date.now(),
     };
 
@@ -143,7 +144,13 @@ router.post('/verify', (req: Request, res: Response) => {
     verifier.update(Buffer.from(originalChallenge, 'utf-8'));
     verifier.end();
 
-    const isValid = verifier.verify(publicKey, signature, 'base64');
+    // 将 Base64 编码的 DER 公钥转为 Node.js verify 可识别的格式
+    const publicKeyBuf = Buffer.from(publicKey, 'base64');
+    const isValid = verifier.verify(
+      { key: publicKeyBuf, format: 'der', type: 'spki' },
+      signature,
+      'base64'
+    );
 
     // If valid, store the public key with the device
     if (isValid) {

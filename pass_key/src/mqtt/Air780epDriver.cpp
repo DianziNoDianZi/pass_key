@@ -414,11 +414,14 @@ int Air780epDriver::available()
                 if (line.startsWith("+QIURC:") || line.startsWith("+QURC:")) {
                     handleURC(line);
                 } else if (line.startsWith("+CGEV:")) {
-                    // 网络事件通知（NW DETACH 等），标记模块状态异常
+                    // 网络事件通知（NW DETACH 等）
+                    // NW DETACH 是模块的短期网络脱落，模块通常自动恢复。
+                    // 不应设置 moduleReady = false（那会触发 30 秒的暴力重置流程），
+                    // 仅断开 TCP，让重连逻辑自行处理即可。
                     Serial.printf("[Air780ep] 网络事件: %s\n", line.c_str());
                     if (line.indexOf("NW DETACH") >= 0 || line.indexOf("ME DETACH") >= 0) {
                         tcpConnected = false;
-                        moduleReady = false;  // 触发重新初始化
+                        // 不设置 moduleReady = false，模块本身仍是工作的
                     }
                 }
             }
@@ -726,7 +729,8 @@ bool Air780epDriver::disconnect()
     }
 
     tcpConnected = false;
-    gprsConfigured = false;
+    // 注意：不断开 GPRS 上下文，下次重连时不需要重新附着
+    // gprsConfigured = false;  // 保留不变，省去 GPRS 重新附着的 15 秒
     return result;
 }
 

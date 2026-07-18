@@ -4,6 +4,7 @@ export interface AuthRequestMessage {
   website: string;
   source?: string;
   challenge: string;
+  expiresAt: string;   // ISO 时间戳，发送给设备端的超时时间
   timestamp: number;
 }
 

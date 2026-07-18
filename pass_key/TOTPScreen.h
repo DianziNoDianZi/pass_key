@@ -24,6 +24,7 @@ public:
     TOTPScreen(DisplayManager *displayMgr);
     ~TOTPScreen();
 
+    virtual const char *getName() const override { return "TOTP Codes"; }
     virtual void onActivate() override;
     virtual void onDeactivate() override;
     virtual void onButtonPress(uint8_t button) override;

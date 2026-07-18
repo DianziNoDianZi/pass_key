@@ -1,11 +1,13 @@
-import { AedesPublishPacket, Client } from 'aedes';
+import { AedesPublishPacket } from 'aedes';
 import { broker } from './broker';
 import { AuthResponseMessage, MqttMessage, TotpSyncResponse, ConfigUpdateResponse } from './types';
 import { getDatabase } from '../db/database';
 import { publishToDevice } from './broker';
 
 export function setupMessageHandler(): void {
-  // Subscribe to all device response topics using internal handler
+  // Subscribe to all device response topics
+  // broker.on('publish') 和 broker.subscribe 都会收到设备的消息，
+  // 为避免消息重复处理，统一使用 broker.subscribe 方式。
   broker.subscribe('passkey/+/resp', (packet: AedesPublishPacket, cb: () => void) => {
     try {
       const payload = packet.payload.toString();
@@ -35,41 +37,6 @@ export function setupMessageHandler(): void {
     cb();
   }, () => {
     console.log('[MQTT Handler] Subscribed to passkey/+/resp');
-  });
-
-  // Also listen to published events for direct client messages
-  broker.on('publish', (packet: AedesPublishPacket, client: Client | null) => {
-    // Only process messages from clients (devices), not from the server itself
-    if (!client) return;
-
-    const topic = packet.topic;
-    if (!topic.startsWith('passkey/')) return;
-
-    try {
-      const payload = packet.payload.toString();
-      const message: MqttMessage = JSON.parse(payload);
-
-      console.log(`[MQTT Handler] Received message from ${client.id} on ${topic}:`, (message as any).type);
-
-      switch (message.type) {
-        case 'auth_response':
-          handleAuthResponse(message as AuthResponseMessage);
-          break;
-        case 'totp_sync_ack':
-          handleTotpSyncAck(message as TotpSyncResponse);
-          break;
-        case 'config_update_ack':
-          handleConfigUpdateAck(message as ConfigUpdateResponse);
-          break;
-        case 'device_register':
-          handleDeviceRegister(topic, message as { publicKey?: string });
-          break;
-        default:
-          console.log(`[MQTT Handler] Unknown message type: ${(message as any).type}`);
-      }
-    } catch (err) {
-      console.error('[MQTT Handler] Error processing message:', err);
-    }
   });
 }
 
@@ -229,13 +196,19 @@ function handleDeviceRegister(topic: string, message: { publicKey?: string }): v
   const db = getDatabase();
   const existing = db.prepare('SELECT public_key FROM devices WHERE device_id = ?').get(deviceId) as { public_key: string | null } | undefined;
 
-  if (existing && !existing.public_key) {
-    // Only update if no public key is stored yet
-    db.prepare('UPDATE devices SET public_key = ? WHERE device_id = ?').run(message.publicKey, deviceId);
-    console.log(`[MQTT Handler] Device ${deviceId} public key registered`);
-  } else if (existing) {
-    console.log(`[MQTT Handler] Device ${deviceId} already has a public key, skipping update`);
+  if (existing) {
+    if (!existing.public_key) {
+      // 首次注册：保存公钥
+      db.prepare('UPDATE devices SET public_key = ? WHERE device_id = ?').run(message.publicKey, deviceId);
+      console.log(`[MQTT Handler] Device ${deviceId} public key registered (len=${message.publicKey.length})`);
+    } else if (existing.public_key !== message.publicKey) {
+      // 公钥变更：客户端可能重置了密钥，允许覆盖
+      console.log(`[MQTT Handler] Device ${deviceId} public key UPDATED (old differs from new)`);
+      db.prepare('UPDATE devices SET public_key = ? WHERE device_id = ?').run(message.publicKey, deviceId);
+    } else {
+      console.log(`[MQTT Handler] Device ${deviceId} already has this public key, skipping`);
+    }
   } else {
-    console.warn(`[MQTT Handler] Device ${deviceId} not found in database`);
+    console.warn(`[MQTT Handler] Device ${deviceId} not found in database. Add device via admin panel first.`);
   }
 }

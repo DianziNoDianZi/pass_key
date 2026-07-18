@@ -566,11 +566,18 @@ std::vector<uint8_t> TOTPManager::encryptData(const std::vector<uint8_t> &plaint
     const size_t IV_LEN = 12;
     const size_t TAG_LEN = 16;
 
-    // 生成随机 IV
+    // 生成随机 IV（使用 CTR_DRBG 而非 random()，确保加密安全）
     std::vector<uint8_t> iv(IV_LEN);
-    for (size_t i = 0; i < IV_LEN; i++) {
-        iv[i] = (uint8_t)random(256);
+    mbedtls_ctr_drbg_context ctrDrbg;
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_init(&ctrDrbg);
+    mbedtls_entropy_init(&entropy);
+    if (mbedtls_ctr_drbg_seed(&ctrDrbg, mbedtls_entropy_func, &entropy,
+                               (const unsigned char *)"totp_iv", 7) == 0) {
+        mbedtls_ctr_drbg_random(&ctrDrbg, iv.data(), IV_LEN);
     }
+    mbedtls_ctr_drbg_free(&ctrDrbg);
+    mbedtls_entropy_free(&entropy);
 
     // 输出：IV + 密文 + 认证标签
     std::vector<uint8_t> result;

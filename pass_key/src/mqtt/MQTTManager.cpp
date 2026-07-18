@@ -77,6 +77,7 @@ bool MQTTManager::init(const char *clientId, const char *broker, uint16_t port, 
     mqttClient = new PubSubClient(*tcpClient);
     mqttClient->setServer(brokerAddr.c_str(), brokerPort);
     mqttClient->setKeepAlive(MQTT_KEEPALIVE);
+    mqttClient->setBufferSize(1024);
     mqttClient->setCallback(mqttCallback);
 
     // 注册全局实例用于静态回调转发
@@ -237,6 +238,12 @@ void MQTTManager::setMessageCallback(MQTTManagerCallback callback)
 void MQTTManager::loop()
 {
     if (!initialized || !mqttClient) return;
+
+    // 始终读取 UART 数据以处理 URC（如 CLOSED、NW DETACH 等），
+    // 否则断开连接等待重连期间 URC 会堆积在 UART 缓冲区中。
+    if (driver) {
+        driver->available();
+    }
 
     if (connected) {
         // 维持 MQTT 心跳和处理消息
@@ -452,8 +459,10 @@ void MQTTManager::registerDevice()
     json += "\"}";
 
     // 通过出站队列发布（线程安全）
-    publish(topicResp.c_str(), json.c_str());
+    bool queued = publish(topicResp.c_str(), json.c_str());
 
-    Serial.printf("[MQTT] 设备公钥已发送注册: %s...\n",
+    Serial.printf("[MQTT] 设备公钥已%s: 长度=%u字节, 内容前40=%s\n",
+                  queued ? "入队" : "入队失败",
+                  (unsigned int)json.length(),
                   pubKeyB64.substring(0, 40).c_str());
 }

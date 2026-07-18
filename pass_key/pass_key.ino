@@ -91,11 +91,24 @@ void setup()
             Serial.println(F("[OK] Air780ep 唤醒初始化成功"));
         }
 
-        // 初始化时间管理（通过 Air780ep  AT+CCLK 获取 RTC 时间）
+        // 初始化时间管理（通过 Air780ep AT+CCLK 获取 RTC 时间）
         if (!timeManager.init()) {
             Serial.println(F("[ERROR] 时间管理初始化失败"));
         } else {
             Serial.println(F("[OK] 时间管理初始化成功"));
+        }
+
+        // [修复] 唤醒路径必须初始化安全存储和加密引擎
+        // TOTPManager 和 MQTT 设备注册均依赖它们
+        if (!secureStorage.init()) {
+            Serial.println(F("[ERROR] 安全存储唤醒初始化失败"));
+        } else {
+            Serial.println(F("[OK] 安全存储唤醒初始化成功"));
+        }
+        if (!cryptoEngine.init()) {
+            Serial.println(F("[ERROR] 加密引擎唤醒初始化失败"));
+        } else {
+            Serial.println(F("[OK] 加密引擎唤醒初始化成功"));
         }
 
         // 初始化 TOTP 管理器
@@ -226,8 +239,12 @@ void setup()
             displayManager.getCurrentScreen() == mainMenu) {
             const char *selected = mainMenu->getSelectedItem();
             if (selected && strcmp(selected, "TOTP Codes") == 0) {
-                TOTPScreen *totpScreen = new TOTPScreen(&displayManager);
-                displayManager.pushScreen(totpScreen);
+                // 检查当前栈顶是否已是 TOTPScreen，避免重复创建
+                Screen *top = displayManager.getCurrentScreen();
+                if (top && strcmp(top->getName(), "TOTP Codes") != 0) {
+                    TOTPScreen *totpScreen = new TOTPScreen(&displayManager);
+                    displayManager.pushScreen(totpScreen);
+                }
             }
         }
 

@@ -14,6 +14,11 @@ public:
     virtual ~Screen() {}
 
     /**
+     * @brief 返回屏幕名称（用于识别/去重）
+     */
+    virtual const char *getName() const { return ""; }
+
+    /**
      * @brief 进入屏幕时调用
      */
     virtual void onActivate() {}

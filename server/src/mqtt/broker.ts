@@ -96,15 +96,29 @@ broker.on('client', (client: Client) => {
   } catch (err) {
     // setKeepAlive 不是关键功能，失败不影响运行
   }
-
-  // 禁用 Aedes 内置的 MQTT keepalive 超时检查
-  // 原因：设备 CONNECT 包中 keepalive=10，Aedes 会用 10×1.5=15 秒超时踢人
-  // 但设备的 TCP 层走移动蜂窝 NAT，MQTT 心跳可能延迟到达导致被误踢。
-  // 我们改用 TCP keepalive（上面启用）+ 心跳 PUBLISH 双重保活，无需 MQTT keepalive 再踢一次。
+});
+broker.on('clientReady', (client: Client) => {
+  // 禁用 Aedes 内置的 MQTT keepalive 超时定时器
+  //
+  // Aedes 在 CONNECT 处理阶段调用 setKeepAlive()，用 packet.keepalive × 1500
+  // 计算超时并启动 retimer。之后每个 PINGREQ/PUBLISH 到达时，定时器被重设。
+  //
+  // 问题：设备通过蜂窝 4G 接入，PINGREQ 可能因 NAT 延迟/丢包未到达 Broker，
+  // 导致定时器在 15 秒后触发，踢掉连接。即使 TCP 连接实际是通的。
+  //
+  // 方案：移除 Aedes 的应用层 keepalive，改由以下双重机制保活：
+  //   1. TCP keepalive（上面已启用）：每 5 秒从服务端发探测包，刷新 NAT 映射
+  //   2. 设备心跳 PUBLISH（每 10 秒）：即时有数据流量，应用层确认连接正常
+  //
+  // clear() 需要 retimer 类型，通过 any 绕过类型检查
   try {
-    (client as any).keepalive = 0;
+    const c = client as any;
+    if (c._keepaliveTimer && typeof c._keepaliveTimer.clear === 'function') {
+      c._keepaliveTimer.clear();
+      c._keepaliveInterval = 0;
+    }
   } catch (err) {
-    // keepalive 覆盖失败不影响运行
+    // keepalive 定时器清理失败不影响连接正常运行
   }
 });
 broker.on('clientDisconnect', (client: Client) => {

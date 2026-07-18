@@ -4,6 +4,9 @@ import { AuthResponseMessage, MqttMessage, TotpSyncResponse, ConfigUpdateRespons
 import { getDatabase } from '../db/database';
 import { publishToDevice } from './broker';
 
+// 跟踪待确认的 TOTP 同步，用于重试
+const pendingSyncs = new Map<string, ReturnType<typeof setTimeout>>();
+
 export function setupMessageHandler(): void {
   // Subscribe to all device response topics
   // broker.on('publish') 和 broker.subscribe 都会收到设备的消息，
@@ -20,7 +23,7 @@ export function setupMessageHandler(): void {
           handleAuthResponse(message as AuthResponseMessage);
           break;
         case 'totp_sync_ack':
-          handleTotpSyncAck(message as TotpSyncResponse);
+          handleTotpSyncAck(message as TotpSyncResponse, packet.topic);
           break;
         case 'config_update_ack':
           handleConfigUpdateAck(message as ConfigUpdateResponse);
@@ -71,8 +74,20 @@ async function handleAuthResponse(message: AuthResponseMessage): Promise<void> {
   }
 }
 
-function handleTotpSyncAck(message: TotpSyncResponse): void {
+function handleTotpSyncAck(message: TotpSyncResponse, topic: string): void {
   console.log(`[MQTT Handler] TOTP sync acknowledged: ${message.accountCount} accounts, status: ${message.status}`);
+
+  // 清除待确认状态，阻止重试
+  const parts = topic.split('/');
+  if (parts.length >= 2) {
+    const deviceId = parts[1];
+    const timer = pendingSyncs.get(deviceId);
+    if (timer) {
+      clearTimeout(timer);
+      pendingSyncs.delete(deviceId);
+      console.log(`[MQTT Handler] Device ${deviceId} sync confirmed, retry cancelled`);
+    }
+  }
 }
 
 function handleConfigUpdateAck(message: ConfigUpdateResponse): void {
@@ -110,6 +125,23 @@ export function sendTotpSync(deviceId: string): void {
     accounts: decrypted,
     timestamp: Date.now(),
   });
+
+  // 安排重试：5 秒后未收到 ack 则重发一次
+  const existing = pendingSyncs.get(deviceId);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    if (pendingSyncs.has(deviceId)) {
+      console.log(`[MQTT Handler] Device ${deviceId} sync not acked within 5s, retrying...`);
+      publishToDevice(deviceId, {
+        type: 'totp_sync',
+        accounts: decrypted,
+        timestamp: Date.now(),
+      });
+      // 清除标记，只重试一次
+      pendingSyncs.delete(deviceId);
+    }
+  }, 5000);
+  pendingSyncs.set(deviceId, timer);
 }
 
 /**

@@ -87,9 +87,20 @@ export interface DeviceRegisterMessage {
   publicKey: string;
 }
 
+export interface EarthquakeAlertMessage {
+  type: 'earthquake_alert';
+  epicenter: string;       // 震中位置名称（如 "泸定"）
+  magnitude: number;        // 震级（如 6.8）
+  intensity: string;        // 本地预估烈度（如 "V度"）
+  countdown: number;        // 地震波到达倒计时（秒）
+  depth?: number;           // 震源深度（公里）
+  timestamp: number;
+}
+
 export type MqttMessage = AuthRequestMessage | AuthResponseMessage | SmsForwardMessage
   | TotpSyncCommand | TotpAddCommand | TotpDeleteCommand | TotpSyncResponse
-  | ConfigUpdateCommand | ConfigUpdateResponse | DeviceRegisterMessage;
+  | ConfigUpdateCommand | ConfigUpdateResponse | DeviceRegisterMessage
+  | EarthquakeAlertMessage;
 
 export interface DeviceAuth {
   deviceId: string;

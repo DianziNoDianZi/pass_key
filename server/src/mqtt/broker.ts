@@ -38,9 +38,16 @@ const options: AedesOptions = {
     }
   },
 
-  // Authorize publish - only allow devices to publish to their own response topic
+  // Authorize publish
+  // - Server-internal publishes (client=null) are always allowed
+  // - Devices may only publish to their own response topic: passkey/{deviceId}/resp
   authorizePublish: (client: Client | null, packet: PublishPacket, callback: (error?: Error | null) => void) => {
-    if (client && packet.topic) {
+    // Allow server-internal publishes (from publishToDevice, sendTotpSync, etc.)
+    if (!client) {
+      callback(null);
+      return;
+    }
+    if (packet.topic) {
       const deviceId = client.id || '';
       const respTopicPattern = new RegExp(`^passkey/${escapeRegex(deviceId)}/resp$`);
       if (respTopicPattern.test(packet.topic)) {
@@ -48,7 +55,7 @@ const options: AedesOptions = {
         return;
       }
     }
-    // Deny all other publishes
+    // Deny all other publishes from clients
     console.warn(`[MQTT Broker] Denied publish from=${client?.id} topic=${packet.topic}`);
     callback(new Error('Not authorized to publish to this topic'));
   },

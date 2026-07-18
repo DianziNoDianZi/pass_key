@@ -49,5 +49,18 @@ CREATE TABLE IF NOT EXISTS device_config (
   FOREIGN KEY (device_id) REFERENCES devices(device_id)
 );
 
+CREATE TABLE IF NOT EXISTS earthquake_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id TEXT NOT NULL,
+  epicenter TEXT NOT NULL,
+  magnitude REAL NOT NULL,
+  intensity TEXT NOT NULL,
+  countdown INTEGER NOT NULL,
+  depth REAL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (device_id) REFERENCES devices(device_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_earthquake_device_id ON earthquake_events(device_id);
 CREATE INDEX IF NOT EXISTS idx_totp_device_id ON totp_accounts(device_id);
 `;

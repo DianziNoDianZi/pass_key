@@ -16,6 +16,7 @@
 
 #include "TOTPScreen.h"
 #include "ToastScreen.h"
+#include "EarthquakeScreen.h"
 #include "ButtonManager.h"
 #include "PowerManager.h"
 #include "TimeManager.h"
@@ -407,6 +408,33 @@ void setup()
                 serializeJson(respDoc, resp);
                 mqttManager.publish(("passkey/" + String(MQTT_DEVICE_ID) + "/resp").c_str(), resp.c_str());
             }
+        }
+        // ===== 地震预警 =====
+        else if (strcmp(type, "earthquake_alert") == 0) {
+            const char *epicenterVal = doc["epicenter"].as<const char *>();
+            float magnitudeVal       = doc["magnitude"] | 0.0f;
+            const char *intensityVal = doc["intensity"].as<const char *>();
+            uint32_t countdownVal    = doc["countdown"] | 0;
+            uint32_t depthVal        = doc["depth"] | 0;
+
+            if (!epicenterVal || !intensityVal) {
+                Serial.println("[MQTT] earthquake_alert 字段不完整");
+                return;
+            }
+
+            Serial.printf("[MQTT] 地震预警: 震中=%s M=%.1f 烈度=%s 倒计时=%us\n",
+                          epicenterVal, magnitudeVal, intensityVal, countdownVal);
+
+            // 强制打断当前屏幕，全屏报警
+            EarthquakeScreen *eqScreen = new EarthquakeScreen(
+                &displayManager,
+                String(epicenterVal),
+                magnitudeVal,
+                String(intensityVal),
+                countdownVal,
+                depthVal
+            );
+            displayManager.pushScreen(eqScreen);
         }
     });
 

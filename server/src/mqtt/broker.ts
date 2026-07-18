@@ -78,12 +78,35 @@ const options: AedesOptions = {
 
 const broker = new Aedes(options);
 
+// 用 Map 记录客户端连接时间
+const clientConnectTimes = new Map<string, number>();
+
 // ===== 诊断事件监听 =====
 broker.on('client', (client: Client) => {
   console.log(`[MQTT Broker] Client connected: ${client.id}`);
+  clientConnectTimes.set(client.id, Date.now());
+
+  // 启用 TCP keepalive（每 5 秒发探测包，最多重试 3 次，间隔 3 秒）
+  // 这能穿透大部分 NAT 网关，防止 ISP 的 NAT 映射因空闲超时被删除
+  try {
+    const conn = (client as any).conn;
+    if (conn && typeof conn.setKeepAlive === 'function') {
+      conn.setKeepAlive(true, 5000);
+    }
+  } catch (err) {
+    // setKeepAlive 不是关键功能，失败不影响运行
+  }
 });
 broker.on('clientDisconnect', (client: Client) => {
-  console.log(`[MQTT Broker] Client disconnected: ${client.id}`);
+  // 计算连接时长
+  const startTime = clientConnectTimes.get(client.id);
+  let duration = '';
+  if (startTime) {
+    const seconds = Math.round((Date.now() - startTime) / 1000);
+    duration = ` (持续 ${seconds}s)`;
+    clientConnectTimes.delete(client.id);
+  }
+  console.log(`[MQTT Broker] Client disconnected: ${client.id}${duration}`);
 });
 broker.on('publish', (packet: PublishPacket, client: Client | null) => {
   // 不记录心跳，避免刷屏

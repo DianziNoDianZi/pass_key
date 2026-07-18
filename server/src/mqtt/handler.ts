@@ -31,6 +31,9 @@ export function setupMessageHandler(): void {
         case 'device_register':
           handleDeviceRegister(packet.topic, message as { publicKey?: string });
           break;
+        case 'heartbeat':
+          // 应用层心跳，不处理，仅用于保持连接活跃
+          break;
         default:
           console.log(`[MQTT Handler] Unknown message type: ${(message as any).type}`);
       }

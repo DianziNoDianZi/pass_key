@@ -8,6 +8,7 @@
 #include "CryptoEngine.h"
 #include "SecureStorage.h"
 #include "MQTTManager.h"
+#include "ButtonManager.h"
 #include "config.h"
 #include <ArduinoJson.h>
 

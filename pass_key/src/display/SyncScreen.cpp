@@ -8,6 +8,7 @@
 #include "MQTTManager.h"
 #include "TOTPManager.h"
 #include "TimeManager.h"
+#include "ButtonManager.h"
 #include "config.h"
 #include <ArduinoJson.h>
 

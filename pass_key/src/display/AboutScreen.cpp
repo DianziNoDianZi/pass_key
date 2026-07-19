@@ -4,6 +4,7 @@
  */
 
 #include "AboutScreen.h"
+#include "DisplayManager.h"
 #include "config.h"
 #include "MQTTManager.h"
 #include "Air780epDriver.h"

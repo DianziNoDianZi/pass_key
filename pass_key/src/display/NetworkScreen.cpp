@@ -7,6 +7,7 @@
 #include "DisplayManager.h"
 #include "MQTTManager.h"
 #include "Air780epDriver.h"
+#include "ButtonManager.h"
 #include "config.h"
 
 extern Air780epDriver air780epDriver;

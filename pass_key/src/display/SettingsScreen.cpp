@@ -7,6 +7,7 @@
 #include "DisplayManager.h"
 #include "PowerManager.h"
 #include "TimeManager.h"
+#include "ButtonManager.h"
 #include "config.h"
 #include <esp_sleep.h>
 

@@ -61,14 +61,6 @@ public:
     bool configureGPRS(const char *apn);
 
     /**
-     * @brief 建立 TCP 连接
-     * @param host 服务器地址
-     * @param port 端口号
-     * @return true 连接成功
-     */
-    bool connectTCP(const char *host, uint16_t port);
-
-    /**
      * @brief 断开 TCP 连接
      * @return true 断开成功
      */
@@ -91,22 +83,6 @@ public:
     bool connectSSL(const char *host, uint16_t port);
 
     // ==================== 数据收发 ====================
-
-    /**
-     * @brief 通过当前连接发送数据
-     * @param data 数据缓冲区
-     * @param len  数据长度
-     * @return true 发送成功
-     */
-    bool sendData(const uint8_t *data, size_t len);
-
-    /**
-     * @brief 读取接收缓冲区中已缓存的数据
-     * @param buffer 接收缓冲区
-     * @param maxLen 最大读取字节数
-     * @return 实际读取的字节数，无数据返回 0
-     */
-    int receiveData(uint8_t *buffer, size_t maxLen);
 
     /**
      * @brief 获取接收缓冲区中可用的字节数
@@ -230,8 +206,6 @@ private:
     bool  tcpConnected;       // TCP 连接状态
     bool  sslMode;            // 是否 SSL 模式
     bool  gprsConfigured;      // GPRS 已配置（避免重复配置）
-    bool  cipMode;            // 是否使用 CIPSTART/CIPSEND 模式（回退方案）
-
     // URC 回调（MQTTAtDriver 注册用于接收 +QMTRECV 通知）
     URCCallback urcCallback;
 
@@ -269,22 +243,7 @@ private:
      */
     void handleURC(const String &line);
 
-    /**
-     * @brief [CIP 模式] 等待期望响应，同时将非匹配字节写入环形缓冲区
-     *
-     * 与 waitForResponse() 不同，此方法按字节读取 UART，
-     * 将不属于期望响应字符串的字节全部转发到 ringBuf 中。
-     * 解决了 CIPSEND 等待 "SEND OK" 期间 Broker 推送的 MQTT
-     * 数据被 consume 并丢弃的问题。
-     *
-     * @param expected  期望的响应字符串（如 "SEND OK"）
-     * @param timeoutMs 超时时间 (ms)
-     * @return true 匹配成功；超时返回 false（环缓冲区已保留所有非匹配数据）
-     */
-    bool waitForResponseCIP(const char *expected, uint32_t timeoutMs);
-
-    // CIP 模式 CLOSED 检测状态机
-    uint8_t closedDetectState;  // 0=待机, 1-7=匹配中
+    // (waitForResponseCIP 和 closedDetectState 已移除 — CIP 模式不再使用)
 };
 
 #endif // AIR780EP_DRIVER_H

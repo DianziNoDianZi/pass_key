@@ -5,12 +5,14 @@
 
 #include "PowerManager.h"
 #include "Air780epDriver.h"
+#include "FIDO2Manager.h"
 #include <esp_sleep.h>
 #include <driver/gpio.h>
 #include <driver/ledc.h>
 
-// 引用全局 Air780epDriver 实例（定义在 pass_key.ino 中）
+// 引用全局实例（定义在 pass_key.ino 中）
 extern Air780epDriver air780epDriver;
+extern FIDO2Manager   fido2Manager;
 
 PowerManager::PowerManager()
     : currentState(POWER_ACTIVE)
@@ -32,8 +34,8 @@ bool PowerManager::init()
     // 配置 TFT 背光 PWM 通道
     setupBacklightPWM();
 
-    if (cause == ESP_SLEEP_WAKEUP_GPIO) {
-        Serial.println(F("[PM] 从深度睡眠唤醒 (GPIO 唤醒)"));
+    if (cause == ESP_SLEEP_WAKEUP_EXT1) {
+        Serial.println(F("[PM] 从深度睡眠唤醒 (EXT1 GPIO 唤醒)"));
         currentState = POWER_ACTIVE;
         lastActivityTime = millis();
         setActive();
@@ -93,12 +95,16 @@ bool PowerManager::goToDeepSleep()
     // 关闭 TFT 背光（PWM 输出 0%）
     setBacklightBrightness(0);
 
+    // 停止 FIDO2 BLE 广播（准备睡眠）
+    fido2Manager.prepareSleep();
+
     // 让 4G 模块进入低功耗
     Serial.println(F("[PM] 4G 模块进入睡眠..."));
     air780epDriver.sleep();
 
-    // 配置唤醒 GPIO：BTN_UP(GPIO4), BTN_DOWN(GPIO5), BTN_CONFIRM(GPIO6)
-    // 按键均为上拉输入，按下为低电平，使用低电平唤醒
+    // 配置唤醒 GPIO：BTN_UP(GPIO6), BTN_DOWN(GPIO7), BTN_CONFIRM(GPIO13)
+    // ESP32-S3 上 GPIO0-21 均为 RTC GPIO，可用 ext1 唤醒
+    // 按键均为上拉输入，按下为低电平，使用 ALL_LOW 触发
     const uint64_t wakeup_pin_mask = (1ULL << BTN_UP) |
                                      (1ULL << BTN_DOWN) |
                                      (1ULL << BTN_CONFIRM);
@@ -112,8 +118,8 @@ bool PowerManager::goToDeepSleep()
     wakeup_io_cfg.intr_type    = GPIO_INTR_DISABLE;
     gpio_config(&wakeup_io_cfg);
 
-    // 使能 GPIO 唤醒（低电平触发）
-    esp_sleep_enable_gpio_wakeup();
+    // 使能 EXT1 深度睡眠唤醒（所有指定引脚均为低电平时触发）
+    esp_sleep_enable_ext1_wakeup(wakeup_pin_mask, ESP_EXT1_WAKEUP_ALL_LOW);
 
     Serial.println(F("[PM] 调用 esp_deep_sleep_start()"));
 

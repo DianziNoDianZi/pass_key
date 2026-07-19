@@ -199,13 +199,18 @@ bool MQTTAtDriver::publish(int connIdx, uint16_t msgId, const char *topic,
                 gotPrompt = true;
                 break;
             }
-            // 检查错误响应
+            // 检查错误响应或 +MSUB URC
             if (c == 'E' || c == 'C' || c == '+') {
                 String rest = String(c) + driver->uartReadLine();
                 rest.trim();
                 if (rest.indexOf("ERROR") >= 0 || rest.indexOf("+CME ERROR") >= 0) {
                     Serial.printf("[MQTT-AT] MPUBEX 错误: %s\n", rest.c_str());
                     return false;
+                }
+                // +MSUB URC 不应该在 > 等待期间出现，但可能发生（服务器在设备
+                // 发布期间也推送了消息）。转发到接收队列避免消息丢失。
+                if (rest.startsWith("+MSUB:")) {
+                    handleRecvURC(rest);
                 }
             }
         }
@@ -255,16 +260,29 @@ void MQTTAtDriver::handleRecvURC(const String &line)
 
     // 解析 topic（双引号内）
     int topicStart = line.indexOf('"');
-    if (topicStart < 0) return;
+    if (topicStart < 0) {
+        Serial.printf("[MQTT-AT] +MSUB 解析: 找不到 topic 引号: %s\n", line.c_str());
+        return;
+    }
     int topicEnd = line.indexOf('"', topicStart + 1);
-    if (topicEnd < 0) return;
+    if (topicEnd < 0) {
+        Serial.printf("[MQTT-AT] +MSUB 解析: 找不到 topic 结束引号: %s\n", line.c_str());
+        return;
+    }
 
     // 找 payload_len（在 topic 后的逗号之后，" byte," 之前）
     int commaAfterTopic = line.indexOf(',', topicEnd);
-    if (commaAfterTopic < 0) return;
+    if (commaAfterTopic < 0) {
+        Serial.printf("[MQTT-AT] +MSUB 解析: 找不到 topic 后逗号: %s\n", line.c_str());
+        return;
+    }
 
     int bytePos = line.indexOf(" byte,", commaAfterTopic);
-    if (bytePos < 0) return;
+    if (bytePos < 0) {
+        // [诊断] 如果不含 " byte,"，打印整行供分析
+        Serial.printf("[MQTT-AT] +MSUB 解析: 找不到 'byte' 标记: %s\n", line.c_str());
+        return;
+    }
 
     // payload_len
     String lenStr = line.substring(commaAfterTopic + 1, bytePos);

@@ -79,9 +79,11 @@ private:
     bool      syncFailed;          // 初始同步是否失败
     int       retryCount;          // 已重试次数
     uint32_t  lastRetryTime;       // 上次重试时间戳 (ms)
+    uint32_t  lastSyncTime;        // 上次成功同步时间戳 (ms)，用于定时重新同步
 
-    static const int    MAX_RETRIES      = 6;
+    static const int    MAX_RETRIES       = 6;
     static const int    RETRY_INTERVAL_MS = 300000; // 5 分钟
+    static const int    RESYNC_INTERVAL_MS = 21600000; // 6 小时
 };
 
 #endif // TIME_MANAGER_H

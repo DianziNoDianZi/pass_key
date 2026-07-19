@@ -711,6 +711,9 @@ int Air780epDriver::available()
                         tcpConnected = false;
                         // 不设置 moduleReady = false，模块本身仍是工作的
                     }
+                } else if (line.length() > 0) {
+                    // [诊断] 不匹配已知 URC 的行 — 打印出来观察模块实际输出
+                    Serial.printf("[Air780ep] 未识别: %s\n", line.c_str());
                 }
             }
         }

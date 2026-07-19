@@ -37,6 +37,7 @@ TimeManager::TimeManager()
     , syncFailed(false)
     , retryCount(0)
     , lastRetryTime(0)
+    , lastSyncTime(0)
 {
 }
 
@@ -177,6 +178,7 @@ bool TimeManager::parseAndSetTime(const String &response)
     tzset();
 
     timeSynced = true;
+    lastSyncTime = millis();
     Serial.printf("[Time] AT+CCLK 同步成功: %04d-%02d-%02d %02d:%02d:%02d\n",
                    year, month, day, hour, minute, second);
     return true;
@@ -229,7 +231,20 @@ bool TimeManager::isTimeSynced()
 
 void TimeManager::update()
 {
-    // 如果已同步，无需重试
+    unsigned long now = millis();
+
+    // 如果已同步，检查是否需要定时重新同步
+    if (timeSynced && (now - lastSyncTime >= RESYNC_INTERVAL_MS)) {
+        Serial.println(F("[Time] 定时重新同步 RTC..."));
+        if (syncRTC()) {
+            Serial.println(F("[Time] RTC 定时同步成功"));
+        } else {
+            Serial.println(F("[Time] RTC 定时同步失败"));
+        }
+        return;
+    }
+
+    // 初始同步失败后的重试逻辑
     if (timeSynced || !syncFailed) {
         return;
     }
@@ -240,7 +255,6 @@ void TimeManager::update()
     }
 
     // 检查重试间隔
-    unsigned long now = millis();
     if (now - lastRetryTime < RETRY_INTERVAL_MS) {
         return;
     }

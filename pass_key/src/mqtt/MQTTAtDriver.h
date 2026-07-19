@@ -28,11 +28,11 @@ class Air780epDriver;
 class MQTTAtDriver
 {
 public:
-    // +QMTRECV 入站消息
+    // +MSUB 入站消息结构（与 MQTTManager::PendingMsg 保持内存布局一致）
     struct RecvMessage {
         char topic[128];
         uint8_t payload[512];
-        uint16_t payloadLen;
+        unsigned int payloadLen;
     };
 
     MQTTAtDriver(Air780epDriver *driver);

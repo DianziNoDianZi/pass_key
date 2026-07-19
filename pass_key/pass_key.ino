@@ -12,6 +12,7 @@
 #include "Screen.h"
 #include "MenuScreen.h"
 #include "AuthScreen.h"
+#include "WaitingScreen.h"
 #include "ProgressBar.h"
 
 #include "TOTPScreen.h"
@@ -122,6 +123,24 @@ void setup()
             Serial.println(F("[ERROR] 显示屏初始化失败"));
         } else {
             Serial.println(F("[OK] 显示屏初始化成功"));
+
+            // 推送等待界面到屏幕栈，在 module init 及后续操作期间显示
+            displayManager.pushScreen(new WaitingScreen(&displayManager, "Module starting..."));
+
+            // 直接绘制 TFT 以获得即时视觉反馈（pushScreen 的 onDraw 在 setup 结束前不生效）
+            TFT_eSPI &tft = displayManager.getTFT();
+            tft.fillScreen(APPLE_BG);
+            tft.setTextColor(PASSKEY_WHITE, APPLE_BG);
+            tft.setTextSize(3);
+            const char *title = "PassKey";
+            tft.setCursor((TFT_WIDTH - tft.textWidth(title)) / 2, TFT_HEIGHT / 2 - 50);
+            tft.print(title);
+            tft.drawFastHLine(30, TFT_HEIGHT / 2 - 20, TFT_WIDTH - 60, APPLE_GRAY3);
+            tft.setTextColor(APPLE_GRAY, APPLE_BG);
+            tft.setTextSize(2);
+            const char *status = "Module starting...";
+            tft.setCursor((TFT_WIDTH - tft.textWidth(status)) / 2, TFT_HEIGHT / 2 + 10);
+            tft.print(status);
         }
 
         // 初始化按键
@@ -192,6 +211,24 @@ void setup()
             Serial.println(F("[ERROR] 显示屏初始化失败"));
         } else {
             Serial.println(F("[OK] 显示屏初始化成功"));
+
+            // 推送等待界面到屏幕栈，在 module init 及后续操作期间显示
+            displayManager.pushScreen(new WaitingScreen(&displayManager, "Module starting..."));
+
+            // 直接绘制 TFT 以获得即时视觉反馈
+            TFT_eSPI &tft = displayManager.getTFT();
+            tft.fillScreen(APPLE_BG);
+            tft.setTextColor(PASSKEY_WHITE, APPLE_BG);
+            tft.setTextSize(3);
+            const char *title = "PassKey";
+            tft.setCursor((TFT_WIDTH - tft.textWidth(title)) / 2, TFT_HEIGHT / 2 - 50);
+            tft.print(title);
+            tft.drawFastHLine(30, TFT_HEIGHT / 2 - 20, TFT_WIDTH - 60, APPLE_GRAY3);
+            tft.setTextColor(APPLE_GRAY, APPLE_BG);
+            tft.setTextSize(2);
+            const char *status = "Module starting...";
+            tft.setCursor((TFT_WIDTH - tft.textWidth(status)) / 2, TFT_HEIGHT / 2 + 10);
+            tft.print(status);
         }
 
         // 初始化按键
@@ -255,7 +292,7 @@ void setup()
     }
 
     // ----- 显示初始化（所有启动方式共用） -----
-    // 创建主菜单并压入屏幕栈
+    // 创建主菜单并替换等待界面（如果 WaitingScreen 存在则删除它）
     mainMenu = new MenuScreen("PassKey");
     mainMenu->addItem("TOTP Codes");
     mainMenu->addItem("Accounts");
@@ -265,7 +302,7 @@ void setup()
     mainMenu->addItem("Security");
     mainMenu->addItem("Network");
     mainMenu->addItem("Logs");
-    displayManager.pushScreen(mainMenu);
+    displayManager.replaceScreen(mainMenu);
 
     // ----- 注册按键回调（所有启动方式共用） -----
     // 短按回调：路由到当前屏幕

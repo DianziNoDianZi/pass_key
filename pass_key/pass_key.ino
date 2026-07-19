@@ -17,6 +17,10 @@
 
 #include "TOTPScreen.h"
 #include "SettingsScreen.h"
+#include "AboutScreen.h"
+#include "SyncScreen.h"
+#include "SecurityScreen.h"
+#include "NetworkScreen.h"
 #include "ToastScreen.h"
 #include "EarthquakeScreen.h"
 #include "ButtonManager.h"
@@ -332,6 +336,26 @@ void setup()
                 Screen *top = displayManager.getCurrentScreen();
                 if (top && strcmp(top->getName(), "Settings") != 0) {
                     displayManager.pushScreen(new SettingsScreen(&displayManager));
+                }
+            } else if (selected && strcmp(selected, "About") == 0) {
+                Screen *top = displayManager.getCurrentScreen();
+                if (top && strcmp(top->getName(), "About") != 0) {
+                    displayManager.pushScreen(new AboutScreen());
+                }
+            } else if (selected && strcmp(selected, "Sync") == 0) {
+                Screen *top = displayManager.getCurrentScreen();
+                if (top && strcmp(top->getName(), "Sync") != 0) {
+                    displayManager.pushScreen(new SyncScreen(&displayManager));
+                }
+            } else if (selected && strcmp(selected, "Security") == 0) {
+                Screen *top = displayManager.getCurrentScreen();
+                if (top && strcmp(top->getName(), "Security") != 0) {
+                    displayManager.pushScreen(new SecurityScreen(&displayManager));
+                }
+            } else if (selected && strcmp(selected, "Network") == 0) {
+                Screen *top = displayManager.getCurrentScreen();
+                if (top && strcmp(top->getName(), "Network") != 0) {
+                    displayManager.pushScreen(new NetworkScreen(&displayManager));
                 }
             }
         }

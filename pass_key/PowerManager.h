@@ -79,6 +79,18 @@ public:
     void setBacklightBrightness(uint8_t brightness);
 
     /**
+     * @brief 获取待机超时时间
+     * @return 秒数
+     */
+    uint32_t getStandbyTimeout() const { return standbyTimeoutMs / 1000; }
+
+    /**
+     * @brief 获取深度睡眠超时时间
+     * @return 秒数
+     */
+    uint32_t getDeepSleepTimeout() const { return deepSleepTimeoutMs / 1000; }
+
+    /**
      * @brief 每帧调用，检查空闲时间并自动切换状态
      */
     void update();

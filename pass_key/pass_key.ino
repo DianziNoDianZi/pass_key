@@ -16,6 +16,7 @@
 #include "ProgressBar.h"
 
 #include "TOTPScreen.h"
+#include "SettingsScreen.h"
 #include "ToastScreen.h"
 #include "EarthquakeScreen.h"
 #include "ButtonManager.h"
@@ -295,13 +296,11 @@ void setup()
     // 创建主菜单并替换等待界面（如果 WaitingScreen 存在则删除它）
     mainMenu = new MenuScreen("PassKey");
     mainMenu->addItem("TOTP Codes");
-    mainMenu->addItem("Accounts");
     mainMenu->addItem("Settings");
     mainMenu->addItem("About");
     mainMenu->addItem("Sync");
     mainMenu->addItem("Security");
     mainMenu->addItem("Network");
-    mainMenu->addItem("Logs");
     displayManager.replaceScreen(mainMenu);
 
     // ----- 注册按键回调（所有启动方式共用） -----
@@ -328,6 +327,11 @@ void setup()
                 if (top && strcmp(top->getName(), "TOTP Codes") != 0) {
                     TOTPScreen *totpScreen = new TOTPScreen(&displayManager);
                     displayManager.pushScreen(totpScreen);
+                }
+            } else if (selected && strcmp(selected, "Settings") == 0) {
+                Screen *top = displayManager.getCurrentScreen();
+                if (top && strcmp(top->getName(), "Settings") != 0) {
+                    displayManager.pushScreen(new SettingsScreen(&displayManager));
                 }
             }
         }

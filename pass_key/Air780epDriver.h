@@ -15,6 +15,9 @@
 // 接收环形缓冲区大小
 #define AIR780EP_RX_BUF_SIZE  4096
 
+// URC 回调类型 — 用于处理 +QMTRECV 等非 +QIURC 异步通知
+typedef void (*URCCallback)(const String &line);
+
 class Air780epDriver
 {
 public:
@@ -139,6 +142,17 @@ public:
      */
     bool getSignalStrength(int &rssi);
 
+    // ==================== AT 响应等待（供 MQTTAtDriver 使用） ====================
+
+    /**
+     * @brief 等待 UART 读取到指定字符串
+     * @param expected 期望字符串
+     * @param timeoutMs 超时时间
+     * @param collectOut 收集到的全部响应
+     * @return true 匹配成功
+     */
+    bool waitForResponse(const char *expected, uint32_t timeoutMs, String *collectOut = nullptr);
+
     // ==================== 状态查询 ====================
 
     /**
@@ -166,9 +180,48 @@ public:
     bool isSSLMode() const { return sslMode; }
 
     /**
-     * @brief 清空 UART 接收缓冲区（丢弃所有未读数据）
+     * @brief 清空 UART 接收缓冲区（供 MQTTManager 在重连时调用）
      */
     void flushUART();
+
+    // ==================== UART 辅助方法（供 MQTTAtDriver 使用） ====================
+
+    /**
+     * @brief 检查 UART 是否有可读数据
+     */
+    int  uartAvailable() { return uart ? uart->available() : 0; }
+
+    /**
+     * @brief 从 UART 读取一个字节
+     * @return 字节值，-1 无数据
+     */
+    int  uartRead() { return uart ? uart->read() : -1; }
+
+    /**
+     * @brief 从 UART 读取一行（直到 \n）
+     */
+    String uartReadLine() { return uart ? uart->readStringUntil('\n') : String(); }
+
+    /**
+     * @brief 向 UART 写入数据块
+     */
+    void uartWrite(const uint8_t *data, size_t len) { if (uart) uart->write(data, len); }
+
+    /**
+     * @brief 向 UART 写入一个字节
+     */
+    void uartWriteByte(uint8_t c) { if (uart) uart->write(c); }
+
+    /**
+     * @brief 发送 AT 命令（不追加 \r\n，不等待响应）
+     * 供 MQTTAtDriver::publish() 在发送 QMTPUB 负载前使用
+     */
+    void sendRaw(const char *cmd) { if (uart) { uart->print(cmd); uart->print("\r\n"); } }
+
+    /**
+     * @brief 注册 URC 回调（供 MQTTAtDriver 注册 +QMTRECV 处理）
+     */
+    void setURCCallback(URCCallback cb) { urcCallback = cb; }
 
 private:
     HardwareSerial *uart;
@@ -178,6 +231,9 @@ private:
     bool  sslMode;            // 是否 SSL 模式
     bool  gprsConfigured;      // GPRS 已配置（避免重复配置）
     bool  cipMode;            // 是否使用 CIPSTART/CIPSEND 模式（回退方案）
+
+    // URC 回调（MQTTAtDriver 注册用于接收 +QMTRECV 通知）
+    URCCallback urcCallback;
 
     // 接收环形缓冲区
     uint8_t rxBuf[AIR780EP_RX_BUF_SIZE];
@@ -214,13 +270,18 @@ private:
     void handleURC(const String &line);
 
     /**
-     * @brief 等待 UART 读取到指定字符串
-     * @param expected 期望字符串
-     * @param timeoutMs 超时时间
-     * @param collectOut 收集到的全部响应
-     * @return true 匹配成功
+     * @brief [CIP 模式] 等待期望响应，同时将非匹配字节写入环形缓冲区
+     *
+     * 与 waitForResponse() 不同，此方法按字节读取 UART，
+     * 将不属于期望响应字符串的字节全部转发到 ringBuf 中。
+     * 解决了 CIPSEND 等待 "SEND OK" 期间 Broker 推送的 MQTT
+     * 数据被 consume 并丢弃的问题。
+     *
+     * @param expected  期望的响应字符串（如 "SEND OK"）
+     * @param timeoutMs 超时时间 (ms)
+     * @return true 匹配成功；超时返回 false（环缓冲区已保留所有非匹配数据）
      */
-    bool waitForResponse(const char *expected, uint32_t timeoutMs, String *collectOut = nullptr);
+    bool waitForResponseCIP(const char *expected, uint32_t timeoutMs);
 
     // CIP 模式 CLOSED 检测状态机
     uint8_t closedDetectState;  // 0=待机, 1-7=匹配中

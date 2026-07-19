@@ -1,0 +1,5 @@
+#
+# IPC 任务栈大小（默认 1024 字节，BLE 初始化调用链太深时会溢出）
+# 增加到 3072 字节以容纳 BLEDevice::init() 的 IPC 调用
+#
+CONFIG_ESP_IPC_TASK_STACK_SIZE=3072

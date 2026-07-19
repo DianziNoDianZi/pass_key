@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file Air780epDriver.cpp
  * @brief Air780ep 4G 模块驱动实现
  *
@@ -18,6 +18,7 @@ Air780epDriver::Air780epDriver()
     , sslMode(false)
     , gprsConfigured(false)
     , cipMode(false)
+    , urcCallback(nullptr)
     , rxHead(0)
     , rxTail(0)
     , closedDetectState(0)
@@ -120,6 +121,14 @@ String Air780epDriver::readResponse(uint32_t timeoutMs)
                 continue;
             }
 
+            // +MSUB URC：转发给注册的回调（MQTTAtDriver）
+            if (line.startsWith("+MSUB:")) {
+                if (urcCallback) {
+                    urcCallback(line);
+                }
+                continue;
+            }
+
             if (line.length() > 0) {
                 if (resp.length() > 0) resp += "\n";
                 resp += line;
@@ -154,6 +163,14 @@ bool Air780epDriver::waitForResponse(const char *expected, uint32_t timeoutMs, S
             // 处理 URC 通知
             if (line.startsWith("+QIURC:")) {
                 handleURC(line);
+                continue;
+            }
+
+            // +MSUB URC：转发给注册的回调（MQTTAtDriver）
+            if (line.startsWith("+MSUB:")) {
+                if (urcCallback) {
+                    urcCallback(line);
+                }
                 continue;
             }
 
@@ -198,6 +215,166 @@ bool Air780epDriver::waitForResponse(const char *expected, uint32_t timeoutMs, S
     }
 
     if (collectOut) *collectOut = collected;
+    return false;
+}
+
+bool Air780epDriver::waitForResponseCIP(const char *expected, uint32_t timeoutMs)
+{
+    // CIP 模式下，UART 数据是原始的二进制流，无法用 readStringUntil('\n') 按行读取。
+    // waitForResponse() 的 readStringUntil('\n') 方式会吞掉随路到达的 MQTT Broker 推送数据，
+    // 导致 PubSubClient 永远收不到消息。
+    //
+    // 本方法按字节读取：
+    //   1. 所有非期望响应的字节 → 写入环形缓冲区 ringBuf（供 PubSubClient 读取）
+    //   2. 期望响应匹配上的字节   → 消耗掉（不进入 ringBuf）
+    //   3. CLOSED / 断开检测     → 状态机同步更新
+    //   4. 超时时所有缓冲字节    → 写入 ringBuf，确保不丢数据
+
+    if (!uart || !expected) return false;
+
+    unsigned long start = millis();
+    size_t expectedLen = strlen(expected);
+
+    // 重置 CLOSED 状态机：防止之前函数调用遗留下的非零状态
+    // 导致本函数中首个字节的非预期匹配
+    closedDetectState = 0;
+
+    // matchBuf 临时缓存可能匹配 expected 前缀的字节
+    uint8_t matchBuf[64];
+    size_t matchCount = 0;
+
+    while (millis() - start < timeoutMs) {
+        while (uart->available()) {
+            uint8_t c = (uint8_t)uart->read();
+
+            // ---- CLOSED 检测状态机（与 available() 同步） ----
+            bool isClosed = false;
+            switch (closedDetectState) {
+                case 0: if (c == 'C') closedDetectState = 1; else closedDetectState = 0; break;
+                case 1: closedDetectState = (c == 'L') ? 2 : (c == 'C' ? 1 : 0); break;
+                case 2: closedDetectState = (c == 'O') ? 3 : (c == 'C' ? 1 : 0); break;
+                case 3: closedDetectState = (c == 'S') ? 4 : (c == 'C' ? 1 : 0); break;
+                case 4: closedDetectState = (c == 'E') ? 5 : (c == 'C' ? 1 : 0); break;
+                case 5: closedDetectState = (c == 'D') ? 6 : (c == 'C' ? 1 : 0); break;
+                case 6: closedDetectState = (c == '\r') ? 7 : (c == 'C' ? 1 : 0); break;
+                case 7:
+                    isClosed = (c == '\n');
+                    if (isClosed) {
+                        tcpConnected = false;
+                        Serial.println(F("[Air780ep] waitForResponseCIP 检测到 CLOSED"));
+                    }
+                    closedDetectState = (c == 'C') ? 1 : 0;
+                    break;
+                default: closedDetectState = 0; break;
+            }
+            if (isClosed) continue;
+
+            // ---- +IPD 检测 ----
+            // Broker 可能在 CIPSEND 等待 SEND OK 期间推送数据，模块包装为
+            // +IPD,<len>:<data>\r\n。必须解析 +IPD 前缀，只将纯数据写入 ringBuf。
+            // 不能用 readStringUntil('\n') 因为二进制数据可能含 0x0A。
+            if (c == '+') {
+                uint8_t ipd[4];
+                size_t got = 0;
+                unsigned long ipdTout = millis() + 100;
+                while (got < 4 && millis() < ipdTout) {
+                    if (uart->available()) {
+                        ipd[got++] = (uint8_t)uart->read();
+                    } else {
+                        delay(1);
+                    }
+                }
+                if (got == 4 && ipd[0] == 'I' && ipd[1] == 'P' && ipd[2] == 'D' && ipd[3] == ',') {
+                    // 确实是 +IPD, 读取长度直到 ':'
+                    String lenStr;
+                    unsigned long lTout = millis() + 100;
+                    while (millis() < lTout) {
+                        if (uart->available()) {
+                            char ch = (char)uart->read();
+                            if (ch == ':') break;
+                            lenStr += ch;
+                        } else {
+                            delay(1);
+                        }
+                    }
+                    int dataLen = lenStr.toInt();
+                    // 读取 dataLen 字节数据到 ringBuf
+                    for (int i = 0; i < dataLen; i++) {
+                        unsigned long dTout = millis() + 5000;
+                        while (!uart->available() && millis() < dTout) delay(1);
+                        if (uart->available()) {
+                            ringPutc((uint8_t)uart->read());
+                        } else {
+                            break;
+                        }
+                    }
+                    // 消耗尾部 \r\n
+                    unsigned long cTout = millis() + 100;
+                    int trail = 0;
+                    while (trail < 2 && millis() < cTout) {
+                        if (uart->available()) {
+                            uart->read();
+                            trail++;
+                        } else {
+                            delay(2);
+                        }
+                    }
+                    closedDetectState = 0;
+                    continue;
+                } else {
+                    // 不是 +IPD，把读到的字节全部写入 ringBuf
+                    ringPutc('+');
+                    for (size_t i = 0; i < got; i++) ringPutc(ipd[i]);
+                    continue;
+                }
+            }
+
+            // ---- 期望响应匹配 ----
+            // 当前字节继续匹配 expected 的下一个字符
+            if (matchCount < expectedLen && c == (uint8_t)expected[matchCount]) {
+                matchBuf[matchCount++] = c;
+                if (matchCount == expectedLen) {
+                    // 完全匹配 — 消耗掉匹配的字节
+                    // 然后消耗尾部的 \r\n（SEND OK 行结束符），防止它们进入 ringBuf
+                    // 导致 PubSubClient 读 CONNACK 时首字节为 \r(0x0D) 而非 0x20
+                    unsigned long tout = millis() + 50;
+                    int trail = 0;
+                    while (trail < 2 && millis() < tout) {
+                        if (uart->available()) {
+                            uart->read();
+                            trail++;
+                        } else {
+                            delay(2);
+                        }
+                    }
+                    return true;
+                }
+                // 部分匹配中，继续读下一个字节
+                continue;
+            }
+
+            // 当前字节不匹配 expected → 把已部分匹配的字节刷入 ringBuf
+            for (size_t i = 0; i < matchCount; i++) {
+                ringPutc(matchBuf[i]);
+            }
+            matchCount = 0;
+
+            // 当前字节尝试作为新一轮匹配的起点
+            if (expectedLen > 0 && c == (uint8_t)expected[0]) {
+                matchBuf[matchCount++] = c;
+            } else {
+                ringPutc(c);
+            }
+        }
+
+        // UART 暂无数据，短等待
+        delay(10);
+    }
+
+    // 超时 — 把 matchBuf 中残留的字节全部写入 ringBuf
+    for (size_t i = 0; i < matchCount; i++) {
+        ringPutc(matchBuf[i]);
+    }
     return false;
 }
 
@@ -283,70 +460,80 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
         uart->print("\r\n");
 
         // 等待 ">" 提示符（最多 5 秒，超过说明模块卡死）
+        // 注意：此时 UART 上的字节是模块对 AT+CIPSEND 命令的回显
+        //（ATE1 开启时）和模块的响应文本（如 "CONNECT\r\n> "）。
+        // 这些不是 Broker 推送的 MQTT 数据（MQTT 数据在 SEND OK 之后才到达），
+        // 所以直接丢弃即可，无需写入 ringBuf。
+        // 之前 text-based 方式（readStringUntil('\n')）的问题在于：
+        // 当 c=='E'/'C'/'+' 时触发整行读取，如果此时 MQTT 数据已经在 UART
+        // 中等候（模块内部 buffer 非及时刷新），也会被吞掉。
+        // 改用字节级读取 + 仅丢弃，彻底避免这个问题。
+        // 重置 CLOSED 状态机：防止前面函数遗留的非零状态影响本循环
+        closedDetectState = 0;
         unsigned long start = millis();
         bool gotPrompt = false;
         while (millis() - start < 5000) {
-            if (uart->available()) {
-                char c = uart->read();
+            while (uart->available()) {
+                uint8_t c = (uint8_t)uart->read();
+
+                // CLOSED 检测状态机（与 available()/waitForResponseCIP 同步）
+                bool isClosed = false;
+                switch (closedDetectState) {
+                    case 0: if (c == 'C') closedDetectState = 1; else closedDetectState = 0; break;
+                    case 1: closedDetectState = (c == 'L') ? 2 : (c == 'C' ? 1 : 0); break;
+                    case 2: closedDetectState = (c == 'O') ? 3 : (c == 'C' ? 1 : 0); break;
+                    case 3: closedDetectState = (c == 'S') ? 4 : (c == 'C' ? 1 : 0); break;
+                    case 4: closedDetectState = (c == 'E') ? 5 : (c == 'C' ? 1 : 0); break;
+                    case 5: closedDetectState = (c == 'D') ? 6 : (c == 'C' ? 1 : 0); break;
+                    case 6: closedDetectState = (c == '\r') ? 7 : (c == 'C' ? 1 : 0); break;
+                    case 7:
+                        isClosed = (c == '\n');
+                        if (isClosed) {
+                            tcpConnected = false;
+                            Serial.println(F("[Air780ep] CIPSEND > 等待时检测到 CLOSED"));
+                        }
+                        closedDetectState = (c == 'C') ? 1 : 0;
+                        break;
+                    default: closedDetectState = 0; break;
+                }
+                if (isClosed) {
+                    return false;  // CLOSED 后无需再等待
+                }
+
                 if (c == '>') {
                     gotPrompt = true;
-                    break;
+                    break;  // 找到提示符
                 }
-                // 快速检测错误或断开，不等超时
-                // 模块可能在等待期间发送 CLOSED/ERROR/CME ERROR
-                if (c == 'E' || c == 'C' || c == '+') {
-                    // 读一整行看是不是 ERROR/CLOSED/CME ERROR
-                    String line = String(c) + uart->readStringUntil('\n');
-                    line.trim();
-                    if (line.indexOf("ERROR") >= 0 || line.indexOf("CME ERROR") >= 0) {
-                        Serial.printf("[CIPSEND] 模块返回错误: %s\n", line.c_str());
-                        if (line.indexOf("CME ERROR: 3") >= 0) {
-                            tcpConnected = false;
-                            Serial.println("[CIPSEND] CME ERROR: 3 → TCP 不可用");
-                        }
-                        return false;
-                    }
-                    if (line.indexOf("CLOSED") >= 0) {
-                        tcpConnected = false;
-                        Serial.println("[Air780ep] CIPSEND 时检测到 TCP 已关闭");
-                        return false;
-                    }
-                }
+                // 其他字节：AT 回显/响应，直接丢弃
             }
-            delay(5);  // 更短的延迟，更快响应
+            if (gotPrompt) break;
+            delay(5);
         }
         if (!gotPrompt) {
             // 模块不响应 > 提示符，说明 TCP 连接已断或模块卡死
             // 立即标记 TCP 断开，让上层尽快触发重连
             tcpConnected = false;
+            gprsConfigured = false;   // PDP 上下文可能已失效，下次重连需重新配置
             Serial.println("[CIPSEND] 超时未收到 > 提示符，标记 TCP 断开");
             return false;
         }
 
         // 发送数据
         uart->write(data, len);
-        // SEND OK 最多等 10 秒（初始连接时 TCP 路径未稳定，可能需更久）
-        bool sent = waitForResponse("SEND OK", 10000);
+        // 使用 waitForResponseCIP 等待 "SEND OK"。
+        // 与 waitForResponse() 不同，此方法按字节读取 UART，
+        // 将所有非 "SEND OK" 的字节写入环形缓冲区 ringBuf。
+        // 解决了 CIPSEND 期间 Broker 推送的 MQTT 数据被吞掉的问题。
+        bool sent = waitForResponseCIP("SEND OK", 10000);
         if (!sent) {
-            // 检查缓冲区是否有 CME ERROR（异步来的，waitForResponse 可能已经读到了）
-            // 还要检查 UART 中是否有残留错误
-            if (uart) {
-                while (uart->available()) {
-                    String errLine = uart->readStringUntil('\n');
-                    errLine.trim();
-                    if (errLine.indexOf("CME ERROR: 3") >= 0 ||
-                        errLine.indexOf("+CME ERROR: 3") >= 0) {
-                        Serial.println("[CIPSEND] CME ERROR: 3 → TCP 连接不可用，标记断开");
-                        tcpConnected = false;
-                        break;
-                    }
-                }
-            }
-            // SEND OK 超时通常意味着 TCP 已断，模块无法确认数据到达对端
+            // 注意：waitForResponseCIP 已全部读取 UART 缓冲区，
+            // 非 "SEND OK" 字节均已写入 ringBuf（包括 CME ERROR 文本），
+            // 无需再检查 UART。CME ERROR 文本进入 ringBuf 后，
+            // PubSubClient 会将其视为无效 MQTT 数据自动丢弃。
             tcpConnected = false;
+            gprsConfigured = false;
             Serial.printf("[CIPSEND] 发送 %u 字节: SEND OK 超时，标记 TCP 断开\n", (unsigned int)len);
         } else {
-            // 成功时只简短打印，减少 Serial 占用
             if (len > 64) {
                 Serial.printf("[CIPSEND] 发送 %u 字节: OK\n", (unsigned int)len);
             }
@@ -383,6 +570,7 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
 
     if (!gotPrompt) {
         tcpConnected = false;
+        gprsConfigured = false;
         Serial.println("[CIPSEND/QI] 超时未收到 > 提示符，标记 TCP 断开");
         return false;
     }
@@ -399,6 +587,7 @@ bool Air780epDriver::sendData(const uint8_t *data, size_t len)
     bool qiSent = waitForResponse("SEND OK", 10000);
     if (!qiSent) {
         tcpConnected = false;
+        gprsConfigured = false;
         Serial.println("[CIPSEND/QI] SEND OK 超时，标记 TCP 断开");
     }
     return qiSent;
@@ -435,11 +624,52 @@ int Air780epDriver::available()
     if (uart) {
         while (uart->available()) {
             if (cipMode) {
-                // CIP 模式：直接读取原始字节到环形缓冲区
-                // Air780ep 不包装 +IPD 前缀，数据直接以原始二进制到达
-                uint8_t c = (uint8_t)uart->read();
+                // CIP 模式：Air780ep 用 +IPD,<len>:<data>\r\n 包装收到的 TCP 数据。
+                // 必须解析 +IPD 前缀，只将纯数据字节写入 ringBuf，否则 PubSubClient
+                // 读到 "+IPD,4:" 等 ASCII 个字符会解析为无效 MQTT 包 → 连接失败。
+                // 检查首字节是否为 '+'（+IPD 开头）
+                if (uart->peek() == '+') {
+                    // 读取一行
+                    String line = uart->readStringUntil('\n');
+                    line.trim();
+                    if (line.startsWith("+IPD,")) {
+                        // +IPD,<len>:<data>
+                        int colon = line.indexOf(':');
+                        if (colon > 5) {
+                            int ipdLen = line.substring(5, colon).toInt();
+                            // 行中已有的数据字节
+                            for (int i = colon + 1; i < (int)line.length() && (i - colon - 1) < ipdLen; i++) {
+                                ringPutc((uint8_t)line.charAt(i));
+                            }
+                            // 剩余字节可能还在 UART 中
+                            int remaining = ipdLen - ((int)line.length() - colon - 1);
+                            for (int i = 0; i < remaining && uart->available(); i++) {
+                                ringPutc((uint8_t)uart->read());
+                            }
+                        }
+                        // +IPD 行中的字节都是受控的，重置 CLOSED 状态机
+                        closedDetectState = 0;
+                    } else if (line.startsWith("CLOSED")) {
+                        tcpConnected = false;
+                        Serial.println(F("[Air780ep] TCP 连接已关闭"));
+                        closedDetectState = 0;
+                    } else if (line.startsWith("+CGEV:")) {
+                        if (line.indexOf("NW DETACH") >= 0 || line.indexOf("ME DETACH") >= 0) {
+                            tcpConnected = false;
+                        }
+                        closedDetectState = 0;
+                    } else {
+                        // 未知行，送入 ringBuf 让上层尝试解析
+                        for (size_t i = 0; i < line.length(); i++) {
+                            ringPutc((uint8_t)line.charAt(i));
+                        }
+                        ringPutc('\n');
+                    }
+                    continue;
+                }
 
-                // 状态机检测 "CLOSED\r\n" URC（TCP 断开通知）
+                // 非 '+' 字节：CLOSED 状态机检测（仅对 "CLOSED\r\n" URC 敏感）
+                uint8_t c = (uint8_t)uart->read();
                 bool skipByte = false;
                 switch (closedDetectState) {
                     case 0: if (c == 'C') closedDetectState = 1; break;
@@ -452,13 +682,12 @@ int Air780epDriver::available()
                     case 7:
                         if (c == '\n') {
                             tcpConnected = false;
-                            Serial.println("[Air780ep] TCP 连接已关闭");
+                            Serial.println(F("[Air780ep] TCP 连接已关闭"));
                         }
                         closedDetectState = 0;
-                        skipByte = true;  // 跳过 \n，不写入环形缓冲区
+                        skipByte = true;
                         break;
                 }
-
                 if (!skipByte) {
                     ringPutc(c);
                 }
@@ -467,6 +696,11 @@ int Air780epDriver::available()
                 line.trim();
                 if (line.startsWith("+QIURC:") || line.startsWith("+QURC:")) {
                     handleURC(line);
+                } else if (line.startsWith("+MSUB:")) {
+                    // +MSUB URC：转发给注册的回调（MQTTAtDriver）
+                    if (urcCallback) {
+                        urcCallback(line);
+                    }
                 } else if (line.startsWith("+CGEV:")) {
                     // 网络事件通知（NW DETACH 等）
                     // NW DETACH 是模块的短期网络脱落，模块通常自动恢复。
@@ -500,28 +734,9 @@ bool Air780epDriver::configureGPRS(const char *apn)
     char cmd[128];
     String resp;
 
-    // ===== 诊断输出 =====
-    sendCommand("AT+CPIN?", "+CPIN:", 3000, &resp);
-    if (resp.indexOf("READY") >= 0)
-        Serial.println("[Air780ep] SIM 卡: READY");
-    else
-        Serial.printf("[Air780ep] SIM 卡状态: %s\n", resp.c_str());
-
-    resp = "";
-    sendCommand("AT+CSQ", "+CSQ:", 3000, &resp);
-    int comma = resp.indexOf(',');
-    if (comma > 0) {
-        int rssi = resp.substring(resp.indexOf(':') + 1, comma).toInt();
-        Serial.printf("[Air780ep] 信号: CSQ=%d", rssi);
-        if (rssi == 99) Serial.println(" (无信号)");
-        else if (rssi <= 9) Serial.println(" (弱)");
-        else if (rssi <= 20) Serial.println(" (中等)");
-        else Serial.println(" (强)");
-    }
-
     // ===== 1. 配置 APN =====
     snprintf(cmd, sizeof(cmd), "AT+CGDCONT=1,\"IP\",\"%s\"", apn);
-    if (!sendCommand(cmd, "OK", 10000)) {
+    if (!sendCommand(cmd, "OK", 5000)) {
         Serial.println("[Air780ep] APN 配置失败");
         return false;
     }
@@ -531,12 +746,12 @@ bool Air780epDriver::configureGPRS(const char *apn)
         Serial.println("[Air780ep] GPRS 已附着");
     } else {
         Serial.print("[Air780ep] GPRS 附着中...");
-        if (!sendCommand("AT+CGATT=1", "OK", 20000)) {
+        if (!sendCommand("AT+CGATT=1", "OK", 10000)) {
             Serial.println(" 失败");
             return false;
         }
-        delay(3000);
-        if (!sendCommand("AT+CGATT?", "+CGATT: 1", 8000)) {
+        delay(1000);
+        if (!sendCommand("AT+CGATT?", "+CGATT: 1", 5000)) {
             Serial.println("[Air780ep] GPRS 附着确认失败");
             return false;
         }
@@ -546,19 +761,19 @@ bool Air780epDriver::configureGPRS(const char *apn)
     // ===== 3. 激活 PDP（只用 CGACT，不用 QIACT） =====
     flushUART();
     Serial.print("[Air780ep] PDP 激活中...");
-    if (!sendCommand("AT+CGACT=1,1", "OK", 20000)) {
+    if (!sendCommand("AT+CGACT=1,1", "OK", 10000)) {
         // 可能已经激活了
-        sendCommand("AT+CGACT?", "+CGACT: 1,1", 5000, &resp);
+        sendCommand("AT+CGACT?", "+CGACT: 1,1", 3000, &resp);
         if (resp.indexOf("+CGACT: 1,1") < 0) {
             Serial.println(" 失败");
             return false;
         }
     }
-    delay(2000);
+    delay(500);
 
     // ===== 4. 获取 IP =====
     resp = "";
-    if (sendCommand("AT+CGPADDR=1", "+CGPADDR: 1,", 5000, &resp)) {
+    if (sendCommand("AT+CGPADDR=1", "+CGPADDR: 1,", 3000, &resp)) {
         int idx = resp.indexOf('"');
         if (idx >= 0) {
             String ip = resp.substring(idx + 1);
@@ -667,21 +882,17 @@ bool Air780epDriver::connectTCP(const char *host, uint16_t port)
                 if (line.startsWith("CONNECT OK") || line.equalsIgnoreCase("CONNECT")) {
                     tcpConnected = true;
                     Serial.println("[TCP] CIPSTART 连接成功");
-                    // 等待 TCP 握手完成（模块需完成 TCP ACK，过早发 CIPSEND 会 CME ERROR: 3）
-                    // 注意：Air780ep 默认 TCP 空闲超时约 5 秒，总等待时间不能超过此值。
-                    // 同时也需要给模块内部 TCP 数据路径足够的初始化时间。
-                    // 折中方案：延迟共 1.5s，既给模块初始化时间，又留有 3.5s 余量避免空闲超时。
-                    // CIPSTO/CIPKEEPALIVE 该模块均不支持（返回 ERROR），不浪费时间去尝试。
-                    delay(1500);
+                    // 等待 TCP 握手完成 + 清空 UART 缓冲区
+                    // 注意：不要发 CIPSEND 预热包！任何提前发送的数据都会被服务器当作 MQTT 协议
+                    // 数据解析。1 字节 0x20 会被解析为 CONNACK 包，导致 Aedes 报错并关闭连接。
+                    // Air780ep 不支持 AT+CIPSTO/CIPKEEPALIVE 命令，跳过以节省 ~2s
+                    delay(500);
                     flushUART();
                     break;
                 }
                 if (line.startsWith("STATE:") && line.indexOf("CONNECT OK") >= 0) {
                     tcpConnected = true;
                     delay(500);
-                    flushUART();
-                    // CIPSTO 同上，不尝试；等待 1s 让模块初始化
-                    delay(1000);
                     flushUART();
                     break;
                 }

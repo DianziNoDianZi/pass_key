@@ -1,10 +1,9 @@
 /**
  * @file MQTTManager.h
- * @brief MQTT 消息管理模块
+ * @brief MQTT 消息管理模块 — Native MQTT AT 命令方案
  *
- * 通过 4G 模块的 TCP/SSL 连接运行 MQTT 协议。
- * 使用 PubSubClient 库在 ESP32 上运行完整 MQTT 客户端，
- * 通过 Air780epClient（继承自 Arduino Client）进行数据传输。
+ * 通过 Air780ep 模块的原生 MQTT AT 命令（+QMTOPEN/+QMTCONN/+QMTSUB/+QMTPUB）
+ * 实现 MQTT 协议，完全绕过 CIPSEND + PubSubClient 链路。
  *
  * 主题规则：
  * - 订阅：passkey/{deviceId}/cmd
@@ -13,6 +12,12 @@
  * 多核设计：
  * - Core 0: 运行 loop() 处理心跳、重连、消息接收
  * - Core 1: 调用 processPendingMessages() 处理收到的消息
+ *
+ * 相比旧方案（CIPSEND + PubSubClient）的优势：
+ * - 模块内部运行完整 MQTT 协议栈，自动保活心跳
+ * - 消除 +IPD 数据污染问题
+ * - 无需 ESP32 拼装 MQTT 协议包
+ * - TCP 连接由模块管理，更稳定
  */
 
 #ifndef MQTT_MANAGER_H
@@ -20,11 +25,10 @@
 
 #include <Arduino.h>
 #include <functional>
-#include <PubSubClient.h>
 #include "config.h"
 
 class Air780epDriver;
-class Air780epClient;
+class MQTTAtDriver;
 
 // MQTT 消息回调类型
 typedef std::function<void(const char *topic, const uint8_t *payload, unsigned int length)> MQTTManagerCallback;
@@ -55,7 +59,7 @@ public:
      * @param clientId 客户端 ID
      * @param broker   Broker 地址
      * @param port     Broker 端口
-     * @param useSSL   是否启用 SSL
+     * @param useSSL   是否启用 SSL（注：当前 MQTT AT 驱动暂不支持 SSL）
      * @return true 成功
      */
     bool init(const char *clientId = MQTT_DEVICE_ID,
@@ -65,6 +69,7 @@ public:
 
     /**
      * @brief 连接到 MQTT Broker
+     * 内部步骤：配置 GPRS → AT+QMTOPEN → AT+QMTCONN → AT+QMTSUB
      * @return true 连接成功
      */
     bool connect();
@@ -102,7 +107,7 @@ public:
     void refreshSignalStrength();
 
     /**
-     * @brief 发布消息
+     * @brief 发布消息（线程安全，通过出站队列异步发送）
      */
     bool publish(const char *topic, const char *payload, bool retained = false);
 
@@ -124,17 +129,18 @@ public:
     /**
      * @brief MQTT 客户端循环处理
      * 在 Core 0 的任务中运行。
-     * 处理心跳、消息接收、自动重连。
+     * 处理心跳、消息接收（+QMTRECV 轮询）、自动重连。
      */
     void loop();
 
     /**
      * @brief 发送 PINGREQ 保活
+     * 注：MQTT AT 驱动由模块自动处理 PINGREQ，此方法仅为接口兼容保留
      */
     bool ping();
 
     /**
-     * @brief 请求完全重连（从服务器发送 reset 指令时调用）
+     * @brief 请求完全重连
      * 线程安全，可在任何核心调用，loop() 中择机执行
      */
     void requestReset();
@@ -158,8 +164,7 @@ public:
     void registerDevice();
 
 private:
-    Air780epClient *tcpClient;
-    PubSubClient   *mqttClient;
+    MQTTAtDriver   *mqttAtDriver;
     Air780epDriver *driver;
 
     // 连接参数
@@ -179,11 +184,12 @@ private:
     unsigned long lastReconnectAttempt;
     unsigned long reconnectDelay;
     int reconnectAttempts;
-    int gprsFailCount;          // 连续 GPRS 配置失败次数
-    int cachedRssi;             // 缓存信号强度 RSSI (0-31, -1=未知)
-    unsigned long lastRssiPoll; // 上次 RSSI 轮询时间
+    int gprsFailCount;              // 连续 GPRS 配置失败次数
+    int cachedRssi;                 // 缓存信号强度 RSSI (0-31, -1=未知)
+    unsigned long lastRssiPoll;     // 上次 RSSI 轮询时间
     unsigned long lastHeartbeatTime; // 应用层心跳上次发送时间
-    volatile bool resetRequested;    // 服务器请求完全重连标记
+    volatile bool resetRequested;   // 服务器请求完全重连标记
+    bool needsResubscribe;          // MQTT CONNECT 后订阅尚未确认
 
     // 主题
     String topicCmd;
@@ -196,14 +202,19 @@ private:
     QueueHandle_t outMsgQueue;
 
     /**
-     * @brief 处理出站消息队列（在 Core 0 上调用，通过 mqttClient 实际发送）
+     * @brief 处理出站消息队列（在 Core 0 上调用，通过 mqttAtDriver 实际发送）
      */
     void processOutgoing();
 
     /**
-     * @brief PubSubClient 内部回调（运行在 Core 0）
+     * @brief +QMTRECV URC 回调（由 Air780epDriver 在检测到 +QMTRECV: 时调用）
      */
-    static void mqttCallback(char *topic, uint8_t *payload, unsigned int length);
+    void onRecvURC(const String &line);
+
+    /**
+     * @brief 静态转发函数，兼容 C 函数指针回调类型
+     */
+    static void urcCallbackStatic(const String &line);
 
     bool attemptReconnect();
     unsigned long getNextReconnectDelay();
